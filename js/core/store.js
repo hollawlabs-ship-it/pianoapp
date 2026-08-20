@@ -94,6 +94,16 @@ window.PA = window.PA || {};
       tx.onerror = () => res();
     });
   }
+  /** 저장된 녹음 blob 키 전체 — 백업이 무엇을 올려야 하는지 알기 위해 필요하다. */
+  async function listBlobKeys() {
+    const d = await db();
+    return new Promise((res) => {
+      const tx = d.transaction(DB_STORE, 'readonly');
+      const r = tx.objectStore(DB_STORE).getAllKeys();
+      r.onsuccess = () => res(r.result || []);
+      r.onerror = () => res([]);
+    });
+  }
 
   /* ---------- 상태 ---------- */
   let state = null;
@@ -520,6 +530,6 @@ window.PA = window.PA || {};
     addRoleModel, updateRoleModel, setPrimaryRoleModel, removeRoleModel,
     setSettings, pushSnapshot, exportJSON, importJSON,
     getApiKey, setApiKey, setRememberKey, clearApiKey, keyIsRemembered: keystore.isRemembered,
-    getBlob, putBlob, delBlob,
+    getBlob, putBlob, delBlob, listBlobKeys,
   };
 })(window.PA);

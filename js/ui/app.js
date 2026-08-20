@@ -22,6 +22,9 @@ window.PA = window.PA || {};
   function boot() {
     PA.store.load();
 
+    // 드롭박스 리디렉트 처리와 폴더 권한 복구. 실패해도 앱은 그대로 돈다.
+    PA.backup.init().catch(function () {});
+
     const app = $('#app');
     clear(app);
 
@@ -237,6 +240,9 @@ window.PA = window.PA || {};
         ]),
       ]),
 
+      /* 저장 드라이브 */
+      driveSection(),
+
       /* 데이터 */
       el('div', {}, [
         el('div', { class: 'section-title', style: { marginTop: 0 } }, [el('span', { text: '데이터' }), el('span', { class: 'rule' })]),
@@ -312,6 +318,192 @@ window.PA = window.PA || {};
 
     const sheet = PA.sheets.open({ title: '설정', body });
     return sheet;
+  }
+
+  /* ---------------- 저장 드라이브 ---------------- */
+  function driveSection() {
+    const host = el('div');
+    const render = () => {
+      clear(host);
+      const B = PA.backup;
+      const p = B.provider();
+      const connected = B.isConnected();
+      const opts = B.options();
+
+      host.appendChild(el('div', { class: 'section-title', style: { marginTop: 0 } }, [
+        el('span', { text: '저장 드라이브' }), el('span', { class: 'rule' }),
+      ]));
+
+      if (!connected) {
+        host.appendChild(el('p', { class: 'small muted', style: { marginBottom: '10px' }, text:
+          '기록은 기본적으로 이 브라우저에만 남습니다. 드라이브를 연결하면 백업과 기기 간 이동이 됩니다.' }));
+
+        PA.providers.list.forEach((prov) => {
+          const usable = prov.available();
+          const card = el('div', { class: 'card', style: { marginBottom: '8px', opacity: usable ? 1 : .55 } }, [
+            el('div', { class: 'row' }, [
+              el('span', { style: { fontWeight: 700 }, text: prov.label }),
+              el('span', { class: 'spacer' }),
+              el('button', {
+                class: 'btn sm primary', text: '연결', disabled: !usable,
+                onclick: () => connect(prov),
+              }),
+            ]),
+            el('p', { class: 'tiny muted', style: { marginTop: '4px' }, text:
+              usable ? prov.note : '이 브라우저에서는 지원되지 않습니다 (크롬·엣지 필요).' }),
+          ]);
+          host.appendChild(card);
+        });
+        return;
+      }
+
+      /* 연결됨 */
+      const info = p.info();
+      host.appendChild(el('div', { class: 'card', style: { borderLeft: '4px solid var(--ebony)' } }, [
+        el('div', { class: 'row' }, [
+          el('span', { style: { fontWeight: 700 }, text: p.label }),
+          el('span', { class: 'badge done', text: '연결됨' }),
+          el('span', { class: 'spacer' }),
+          el('button', {
+            class: 'btn sm ghost', text: '연결 해제',
+            onclick: async () => {
+              const ok = await PA.sheets.confirm({
+                title: '연결 해제',
+                message: '드라이브의 백업 파일은 지워지지 않습니다. 이 기기에서 연결만 끊습니다.',
+                confirmLabel: '해제',
+              });
+              if (!ok) return;
+              await p.disconnect();
+              PA.backup.setProvider(null);
+              render();
+            },
+          }),
+        ]),
+        info.account ? el('div', { class: 'tiny muted', style: { marginTop: '2px' }, text: info.account }) : null,
+        el('div', { class: 'tiny faint', style: { marginTop: '4px' }, text: PA.backup.lastSyncLabel() + ' · 기기 이름: ' + PA.backup.deviceName() }),
+      ]));
+
+      const progress = el('div', { class: 'tiny muted', style: { minHeight: '16px', marginTop: '8px' } });
+
+      const backupBtn = el('button', {
+        class: 'btn primary', html: icon('upload', 16) + '<span>지금 백업</span>',
+        onclick: async () => {
+          try {
+            const c = await PA.backup.checkConflict();
+            if (c.kind === 'remote-newer') {
+              const when = new Date(c.remote.savedAt).toLocaleString('ko-KR');
+              const ok = await PA.sheets.confirm({
+                title: '드라이브에 더 최신 백업이 있습니다',
+                message: `${c.remote.deviceName || '다른 기기'}가 ${when}에 백업했습니다 (곡 ${c.remote.counts.songs}개). ` +
+                         '지금 백업하면 그 기록이 이 기기 내용으로 덮어써집니다. 계속할까요?',
+                danger: true, confirmLabel: '덮어쓰기',
+              });
+              if (!ok) return;
+            }
+            const r = await PA.backup.backup();
+            toast(`백업 완료 — 녹음 ${r.uploaded}개 새로 올림`);
+          } catch (e) { toast(e.message, 'warn'); }
+          render();
+        },
+      });
+
+      const restoreBtn = el('button', {
+        class: 'btn', html: icon('download', 16) + '<span>복원</span>',
+        onclick: async () => {
+          try {
+            const m = await PA.backup.preview();
+            if (!m) { toast('드라이브에 백업이 없습니다.', 'warn'); return; }
+            const when = new Date(m.savedAt).toLocaleString('ko-KR');
+            const ok = await PA.sheets.confirm({
+              title: '백업에서 복원',
+              message: `${m.deviceName || '알 수 없는 기기'} · ${when}\n` +
+                       `곡 ${m.counts.songs}개 · 레슨 ${m.counts.lessons}개 · 녹음 ${m.counts.recordings}개\n\n` +
+                       '이 기기의 현재 기록은 백업 내용으로 대체됩니다. 되돌릴 수 없습니다.',
+              danger: true, confirmLabel: '복원',
+            });
+            if (!ok) return;
+            const r = await PA.backup.restore();
+            toast(`복원 완료 — 녹음 ${r.restored}개 받음` + (r.missing ? `, ${r.missing}개 누락` : ''));
+            PA.views.app.refresh();
+          } catch (e) { toast(e.message, 'warn'); }
+          render();
+        },
+      });
+
+      host.appendChild(el('div', { class: 'row wrap', style: { gap: '8px', marginTop: '10px' } }, [backupBtn, restoreBtn]));
+      host.appendChild(progress);
+
+      const unsub = PA.backup.subscribe((st) => {
+        progress.textContent = st.busy ? `${st.step}… ${Math.round(st.progress * 100)}%` : (st.error ? st.error : '');
+        backupBtn.disabled = st.busy;
+        restoreBtn.disabled = st.busy;
+      });
+      host.addEventListener('DOMNodeRemoved', unsub, { once: true });
+
+      /* 옵션 */
+      const mkCheck = (id, label, checked, note, onChange) => {
+        const box = el('input', { type: 'checkbox', id, style: { width: '18px', height: '18px', accentColor: '#0D0D0D' } });
+        box.checked = checked;
+        box.addEventListener('change', () => onChange(box.checked));
+        return el('div', { style: { marginTop: '10px' } }, [
+          el('label', { for: id, class: 'row', style: { gap: '8px', cursor: 'pointer' } }, [
+            box, el('span', { class: 'small', text: label }),
+          ]),
+          el('p', { class: 'tiny faint', text: note }),
+        ]);
+      };
+
+      host.appendChild(mkCheck('bkAuto', '자동 백업', opts.auto,
+        '기록이 바뀌고 90초쯤 조용해지면 알아서 올립니다. 자동 백업은 기록만 올리고 녹음 파일은 올리지 않습니다.',
+        (v) => { PA.backup.setOptions({ auto: v }); toast(v ? '자동 백업을 켰습니다.' : '자동 백업을 껐습니다.'); }));
+
+      host.appendChild(mkCheck('bkAudio', '녹음 파일까지 백업', opts.includeAudio,
+        '끄면 별점·메모·레슨·음량 곡선만 올립니다. 녹음 원본은 용량이 커서 드라이브를 많이 씁니다.',
+        (v) => PA.backup.setOptions({ includeAudio: v })));
+
+      host.appendChild(el('button', {
+        class: 'btn sm ghost block', style: { marginTop: '10px' },
+        html: icon('edit', 15) + '<span>이 기기 이름 바꾸기</span>',
+        onclick: async () => {
+          const v = await PA.sheets.prompt({
+            title: '기기 이름', label: '백업에 기록되어 어느 기기에서 올렸는지 구분합니다.',
+            value: PA.backup.deviceName(),
+          });
+          if (v) { PA.backup.setDeviceName(v); render(); }
+        },
+      }));
+    };
+
+    const connect = async (prov) => {
+      try {
+        if (prov.id === 'dropbox') {
+          let appKey = (prov.info().appKey || '').trim();
+          if (!appKey) {
+            appKey = await PA.sheets.prompt({
+              title: '드롭박스 앱 키',
+              label: 'App key',
+              hint: 'dropbox.com/developers → Create app → Scoped access → App folder 로 앱을 만들고, ' +
+                    'Permissions에서 files.content.read / files.content.write 를 켠 뒤, ' +
+                    'Redirect URI에 ' + PA.providers.dropbox.redirectUri() + ' 를 등록하세요. ' +
+                    '앱 키는 비밀번호가 아니라 공개 식별자입니다.',
+            });
+            if (!appKey) return;
+          }
+          await prov.connect(appKey);   // 드롭박스로 이동 → 돌아오면 init()이 마무리
+          return;
+        }
+        const name = await prov.connect();
+        PA.backup.setProvider(prov.id);
+        toast(`${name} 폴더에 연결했습니다.`);
+        render();
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;   // 사용자가 선택창을 닫음
+        toast(e.message, 'warn');
+      }
+    };
+
+    render();
+    return host;
   }
 
   /* ---------------- 첫 실행 안내 ----------------
