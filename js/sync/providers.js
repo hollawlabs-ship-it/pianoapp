@@ -330,8 +330,12 @@ window.PA = window.PA || {};
   const folder = {
     id: 'folder',
     label: '로컬 폴더',
-    note: '드롭박스·원드라이브 동기화 폴더를 고르면 그대로 클라우드로 올라갑니다.',
-    available: () => typeof window.showDirectoryPicker === 'function',
+    note: '데스크톱 전용. 드롭박스·원드라이브 동기화 폴더를 고르면 그대로 클라우드로 올라갑니다.',
+    // API 존재 여부만으로 판단하지 않는다. 폰에서는 설령 함수가 노출돼 있어도
+    // 고른 폴더를 동기화 앱이 올려 주지 못하고 권한 복구도 불안정하다.
+    // 쓸 수 있는 척했다가 나중에 백업이 안 되는 것이 더 나쁘다.
+    available: () => typeof window.showDirectoryPicker === 'function' &&
+      !(PA.storage && PA.storage.isMobile && PA.storage.isMobile()),
     needsSetup: () => false,
     isConnected: () => !!rootHandle,
     info: () => ({ account: rootHandle ? rootHandle.name : null }),

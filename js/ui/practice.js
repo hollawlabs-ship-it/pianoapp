@@ -612,9 +612,11 @@ window.PA = window.PA || {};
         try {
           await rec.start();
           started = true;
+          // 폰은 화면이 꺼지면 브라우저가 멈춰 녹음이 끊긴다
+          PA.storage.keepAwake().catch(() => {});
           mainBtn.className = 'btn primary block';
           mainBtn.innerHTML = icon('square', 18) + '<span>중지하고 저장</span>';
-          hint.textContent = '녹음 중… 끝나면 중지를 누르세요.';
+          hint.textContent = '녹음 중… 끝나면 중지를 누르세요. 화면을 끄거나 다른 앱으로 넘어가면 녹음이 멈춥니다.';
         } catch (e) {
           toast(e.name === 'NotAllowedError' ? '마이크 사용이 거부되었습니다. 브라우저 설정에서 허용해 주세요.' : e.message, 'warn');
         }
@@ -624,6 +626,7 @@ window.PA = window.PA || {};
 
       mainBtn.disabled = true;
       mainBtn.innerHTML = '<span class="thinking"><i></i><i></i><i></i></span><span>분석 중</span>';
+      PA.storage.releaseAwake().catch(function(){});
       const out = await rec.stop();
       if (!out || !out.blob || out.duration < 1) {
         toast('녹음이 너무 짧습니다.', 'warn');
@@ -663,10 +666,10 @@ window.PA = window.PA || {};
       body: el('div', { class: 'stack', style: { gap: '14px' } }, [timeEl, live, clipWarn, mainBtn, hint,
         el('button', {
           class: 'btn ghost block', text: '취소',
-          onclick: () => { rec.cancel(); sheet.close(); },
+          onclick: () => { rec.cancel(); PA.storage.releaseAwake().catch(function(){}); sheet.close(); },
         }),
       ]),
-      onClose: () => { try { rec.cancel(); } catch (e) {} },
+      onClose: () => { try { rec.cancel(); } catch (e) {} PA.storage.releaseAwake().catch(function(){}); },
     });
     return sheet;
   }

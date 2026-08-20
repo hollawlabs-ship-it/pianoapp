@@ -65,7 +65,7 @@ window.PA = window.PA || {};
   const writeJSON = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
 
   const lastSync = () => readJSON(SYNC_KEY, null);
-  const options = () => Object.assign({ auto: false, includeAudio: true }, readJSON(OPTS_KEY, {}));
+  const options = () => Object.assign({ auto: false, includeAudio: true, audioScope: 'all' }, readJSON(OPTS_KEY, {}));
   const setOptions = (patch) => { writeJSON(OPTS_KEY, Object.assign(options(), patch)); emit(); };
 
   /* ---------- 현재 공급자 ---------- */
@@ -135,11 +135,27 @@ window.PA = window.PA || {};
       const stateText = PA.store.exportJSON();   // API 키는 여기 포함되지 않는다
       const songs = PA.store.songs();
 
-      // 어떤 녹음을 올릴지 — 상태가 참조하는 blob만 대상으로 한다
+      // 어떤 녹음을 올릴지 — 상태가 참조하는 blob만 대상으로 한다.
+      //
+      // 폰에서 매일 녹음하면 용량이 금방 찬다. 그런데 모든 녹음이 남길 가치가
+      // 같은 것은 아니다. '기준'으로 표시한 녹음과 구간별 최신 것만 남겨도
+      // 비교의 목적은 달성되고 용량은 크게 줄어든다.
       const wanted = [];
-      songs.forEach((s) => (s.recordings || []).forEach((r) => {
-        if (r.blobKey) wanted.push({ key: r.blobKey, mime: r.mime, songId: s.id, id: r.id });
-      }));
+      songs.forEach((s) => {
+        let list = (s.recordings || []).filter((r) => r.blobKey);
+        if (opts.audioScope === 'key') {
+          const latestPerSection = new Map();
+          list.forEach((r) => {
+            const k = r.sectionId || '-';
+            const prev = latestPerSection.get(k);
+            if (!prev || (r.at || 0) > (prev.at || 0)) latestPerSection.set(k, r);
+          });
+          const keep = new Set(list.filter((r) => r.isReference).map((r) => r.id));
+          latestPerSection.forEach((r) => keep.add(r.id));
+          list = list.filter((r) => keep.has(r.id));
+        }
+        list.forEach((r) => wanted.push({ key: r.blobKey, mime: r.mime, songId: s.id, id: r.id }));
+      });
 
       let remoteRecs = [];
       if (opts.includeAudio) {

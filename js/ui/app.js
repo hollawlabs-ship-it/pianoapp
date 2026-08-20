@@ -25,6 +25,10 @@ window.PA = window.PA || {};
     // 드롭박스 리디렉트 처리와 폴더 권한 복구. 실패해도 앱은 그대로 돈다.
     PA.backup.init().catch(function () {});
 
+    // 브라우저가 기록을 임의로 지우지 못하게 영구 저장소를 요청한다.
+    // 폰에서는 이게 데이터 유실을 막는 첫 번째 방어선이다.
+    PA.storage.requestPersist().catch(function () {});
+
     const app = $('#app');
     clear(app);
 
@@ -240,6 +244,9 @@ window.PA = window.PA || {};
         ]),
       ]),
 
+      /* 저장 공간 */
+      storageSection(),
+
       /* 저장 드라이브 */
       driveSection(),
 
@@ -320,6 +327,75 @@ window.PA = window.PA || {};
     return sheet;
   }
 
+  /* ---------------- 저장 공간 · 유실 위험 ---------------- */
+  function storageSection() {
+    const host = el('div');
+    host.appendChild(el('div', { class: 'section-title', style: { marginTop: 0 } }, [
+      el('span', { text: '저장 공간' }), el('span', { class: 'rule' }),
+    ]));
+    const box = el('div', { class: 'card' }, [el('span', { class: 'thinking', html: '<i></i><i></i><i></i>' })]);
+    host.appendChild(box);
+
+    (async () => {
+      const S = PA.storage;
+      const [est, persisted, r] = await Promise.all([S.estimate(), S.isPersisted(), S.risk()]);
+      clear(box);
+
+      if (r.level !== 'none') {
+        // 위험이 있으면 가장 위에, 가장 크게 말한다
+        box.appendChild(el('div', { style: { borderLeft: '4px solid var(--ebony)', paddingLeft: '10px', marginBottom: '12px' } }, [
+          el('div', { class: 'row', style: { gap: '7px' } }, [
+            el('span', { html: icon('alert', 15) }),
+            el('span', { class: 'small', style: { fontWeight: 700 }, text: r.text }),
+          ]),
+          el('p', { class: 'tiny muted', style: { marginTop: '4px', lineHeight: '1.6' }, text: r.fix }),
+        ]));
+      }
+
+      if (est && est.quota) {
+        const pct = (est.usage / est.quota) * 100;
+        box.appendChild(el('div', { class: 'row', style: { marginBottom: '5px' } }, [
+          el('span', { class: 'tiny muted', text: '사용 중' }),
+          el('span', { class: 'spacer' }),
+          el('span', { class: 'tiny mono', text: `${S.fmtBytes(est.usage)} / ${S.fmtBytes(est.quota)}` }),
+        ]));
+        box.appendChild(U.barEl(pct));
+      }
+
+      const rows = [
+        ['홈 화면 앱', S.isStandalone() ? '예' : '아니오'],
+        ['영구 저장소', persisted ? '허용됨' : '아님'],
+      ];
+      box.appendChild(el('div', { class: 'row wrap', style: { gap: '6px', marginTop: '10px' } },
+        rows.map(([k, v]) => el('span', { class: 'badge', text: `${k}: ${v}` }))));
+
+      // iOS는 storage.persist()가 없어 홈 화면 추가가 유일한 방어책이다
+      if (S.isIOS() && !S.isStandalone()) {
+        box.appendChild(el('div', { class: 'card', style: { background: 'var(--surface-2)', marginTop: '10px' } }, [
+          el('div', { class: 'small', style: { fontWeight: 700, marginBottom: '4px' }, text: '홈 화면에 추가하세요' }),
+          el('p', { class: 'tiny', style: { lineHeight: '1.7' }, text:
+            '사파리 아래쪽 공유 버튼(□↑) → "홈 화면에 추가". ' +
+            'iOS는 홈 화면에 추가하지 않은 사이트의 저장소를 7일 미방문 시 삭제합니다. ' +
+            '추가하면 이 규칙에서 벗어나고 전체 화면으로도 열립니다.' }),
+        ]));
+      } else if (!persisted && !S.isIOS()) {
+        box.appendChild(el('button', {
+          class: 'btn sm block', style: { marginTop: '10px' },
+          html: icon('key', 15) + '<span>영구 저장소 요청</span>',
+          onclick: async (e) => {
+            e.currentTarget.disabled = true;
+            const res = await PA.storage.requestPersist();
+            toast(res.granted ? '영구 저장소가 허용됐습니다.' :
+              '브라우저가 거부했습니다. 홈 화면에 추가하면 승인될 가능성이 높습니다.', res.granted ? '' : 'warn');
+            openSettings();
+          },
+        }));
+      }
+    })();
+
+    return host;
+  }
+
   /* ---------------- 저장 드라이브 ---------------- */
   function driveSection() {
     const host = el('div');
@@ -350,7 +426,7 @@ window.PA = window.PA || {};
               }),
             ]),
             el('p', { class: 'tiny muted', style: { marginTop: '4px' }, text:
-              usable ? prov.note : '이 브라우저에서는 지원되지 않습니다 (크롬·엣지 필요).' }),
+              usable ? prov.note : '폰·태블릿에서는 쓸 수 없습니다. 데스크톱 크롬·엣지에서만 동작합니다.' }),
           ]);
           host.appendChild(card);
         });
@@ -459,7 +535,21 @@ window.PA = window.PA || {};
 
       host.appendChild(mkCheck('bkAudio', '녹음 파일까지 백업', opts.includeAudio,
         '끄면 별점·메모·레슨·음량 곡선만 올립니다. 녹음 원본은 용량이 커서 드라이브를 많이 씁니다.',
-        (v) => PA.backup.setOptions({ includeAudio: v })));
+        (v) => { PA.backup.setOptions({ includeAudio: v }); render(); }));
+
+      if (opts.includeAudio) {
+        const scope = el('div', { class: 'pill-group', style: { marginTop: '6px' } });
+        [['all', '전부'], ['key', '기준 + 구간별 최신만']].forEach(([id, label]) => {
+          const chip = el('button', { class: 'chip' + (opts.audioScope === id ? ' on' : ''), text: label });
+          chip.addEventListener('click', () => { PA.backup.setOptions({ audioScope: id }); render(); });
+          scope.appendChild(chip);
+        });
+        host.appendChild(scope);
+        host.appendChild(el('p', { class: 'tiny faint', text:
+          opts.audioScope === 'key'
+            ? '「기준」으로 표시한 녹음과 구간마다 가장 최근 것만 올립니다. 용량이 크게 줄고 A/B 비교에는 지장이 없습니다.'
+            : '모든 녹음을 올립니다. 매일 녹음하면 용량이 빠르게 찹니다.' }));
+      }
 
       host.appendChild(el('button', {
         class: 'btn sm ghost block', style: { marginTop: '10px' },
