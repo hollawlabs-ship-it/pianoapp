@@ -171,6 +171,15 @@ window.PA = window.PA || {};
       emit({ step: '기록 저장 중', progress: 0.9 });
       await p.putFile(STATE, new Blob([stateText], { type: 'application/json' }));
 
+      // 사람이 읽는 리포트도 함께 쓴다. 몇 년 뒤 앱 없이 폴더만 열어도
+      // 무슨 일이 있었는지 알 수 있어야 아카이빙이다.
+      if (opts.reports !== false && PA.report) {
+        emit({ step: '리포트 만드는 중', progress: 0.95 });
+        for (const f of PA.report.files()) {
+          try { await p.putFile(f.path, f.blob); } catch (e) { /* 리포트 실패가 백업을 막지는 않는다 */ }
+        }
+      }
+
       const manifest = {
         format: 'pianoapp-backup',
         version: 1,
