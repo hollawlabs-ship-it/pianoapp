@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#EDEDED">
+<meta name="description" content="표현 중심 피아노 연습 기록기 — 구간별 다이내믹·레가토·프레이징·페달링·음색, 녹음 음량 곡선 분석, 레슨 전사 분석, 완성도 추이">
+<title>피아노 연습</title>
+
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/components.css">
+<link rel="manifest" href="manifest.json">
+
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230D0D0D'/%3E%3Crect x='6' y='7' width='3.5' height='18' rx='1' fill='%23FFFFFF'/%3E%3Crect x='11' y='7' width='3.5' height='18' rx='1' fill='%23FFFFFF' opacity='.75'/%3E%3Crect x='16' y='7' width='3.5' height='18' rx='1' fill='%23FFFFFF' opacity='.5'/%3E%3Ccircle cx='24' cy='21' r='3.4' fill='%23FFFFFF'/%3E%3Crect x='26.4' y='8' width='1.6' height='13' fill='%23FFFFFF'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230D0D0D'/%3E%3Crect x='6' y='7' width='3.5' height='18' rx='1' fill='%23FFFFFF'/%3E%3C/svg%3E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+</head>
+<body>
+
+<div id="app">
+  <div class="screen">
+    <div class="topbar"><h1>피아노 연습</h1></div>
+    <p class="small muted">불러오는 중…</p>
+  </div>
+</div>
+
+<noscript>
+  <p style="padding:24px">이 앱은 자바스크립트가 필요합니다.</p>
+</noscript>
+
+<!-- 코어 -->
+<script src="js/core/util.js"></script>
+<script src="js/core/seed.js"></script>
+<script src="js/core/store.js"></script>
+
+<!-- 오디오 -->
+<script src="js/audio/envelope.js"></script>
+<script src="js/audio/recorder.js"></script>
+<script src="js/audio/metronome.js"></script>
+
+<!-- 분석 -->
+<script src="js/ai/client.js"></script>
+<script src="js/ai/analysis.js"></script>
+<script src="js/ai/metrics.js"></script>
+
+<!-- UI -->
+<script src="js/ui/sheets.js"></script>
+<script src="js/ui/charts.js"></script>
+<script src="js/ui/player.js"></script>
+<script src="js/ui/practice.js"></script>
+<script src="js/ui/home.js"></script>
+<script src="js/ui/lesson.js"></script>
+<script src="js/ui/trends.js"></script>
+<script src="js/ui/rolemodel.js"></script>
+<script src="js/ui/app.js"></script>
+
+<script>
+// 오프라인 지원. file:// 로 열었을 때는 등록하지 않는다(보안 컨텍스트가 아님).
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('sw.js').then(function (reg) {
+      // 새 버전이 준비되면 조용히 갈아끼운다
+      reg.addEventListener('updatefound', function () {
+        var sw = reg.installing;
+        if (!sw) return;
+        sw.addEventListener('statechange', function () {
+          if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+            sw.postMessage('SKIP_WAITING');
+          }
+        });
+      });
+    }).catch(function () { /* 오프라인 기능만 못 쓸 뿐 앱은 정상 동작 */ });
+
+    var refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (refreshing) return;
+      refreshing = true;
+      location.reload();
+    });
+  });
+}
+</script>
+
+</body>
+</html>

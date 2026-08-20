@@ -1,0 +1,50 @@
+name: Deploy to GitHub Pages
+
+# 빌드 도구가 없는 정적 앱이라 소스를 그대로 올린다.
+# main에 푸시하면 바로 배포된다.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 배포는 한 번에 하나만. 진행 중인 것은 취소하지 않고 끝나게 둔다.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 배포 아티팩트 점검
+        run: |
+          set -e
+          test -f index.html    || { echo "index.html 없음"; exit 1; }
+          test -f manifest.json || { echo "manifest.json 없음"; exit 1; }
+          test -f sw.js         || { echo "sw.js 없음"; exit 1; }
+          test -f .nojekyll     || { echo ".nojekyll 없음 — Jekyll이 파일을 건드릴 수 있음"; exit 1; }
+          # 서비스 워커의 캐시 버전과 앱 버전이 어긋나면 낡은 자산이 남는다
+          APP_V=$(grep -oE "PA\.VERSION = '[^']+'" js/core/util.js | grep -oE "v[0-9.]+")
+          SW_V=$(grep -oE "VERSION = '[^']+'" sw.js | grep -oE "v[0-9.]+")
+          echo "app=$APP_V sw=$SW_V"
+          test "$APP_V" = "$SW_V" || { echo "버전 불일치: util.js($APP_V) != sw.js($SW_V)"; exit 1; }
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

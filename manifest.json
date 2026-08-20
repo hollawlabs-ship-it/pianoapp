@@ -1,0 +1,30 @@
+{
+  "name": "피아노 연습",
+  "short_name": "피아노 연습",
+  "description": "표현 중심 피아노 연습 기록기 — 구간별 다이내믹·레가토·프레이징·페달링·음색, 녹음 음량 곡선 분석, 레슨 전사 분석, 완성도 추이",
+  "lang": "ko",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "id": "pianoapp",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#EDEDED",
+  "theme_color": "#EDEDED",
+  "categories": ["education", "music", "productivity"],
+  "icons": [
+    {
+      "src": "assets/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "assets/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
