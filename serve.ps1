@@ -68,6 +68,12 @@ try {
         continue
       }
 
+      # Serve directory index, the way GitHub Pages does. Without this, a
+      # subpath deploy (/pianoapp/) behaves differently here than in production.
+      if (Test-Path -LiteralPath $full -PathType Container) {
+        $full = Join-Path $full 'index.html'
+      }
+
       if (-not (Test-Path -LiteralPath $full -PathType Leaf)) {
         $res.StatusCode = 404
         $msg = 'Not found: ' + $rel
