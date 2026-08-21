@@ -13,6 +13,28 @@ window.PA = window.PA || {};
     clear(root);
     const song = PA.store.activeSong();
     if (!song) {
+      // 보기 전용 기기에 곡이 없다는 건 '추가하라'는 뜻이 아니라
+      // '아직 아이 폰에서 백업이 안 왔다'는 뜻이다.
+      if (PA.store.isReadOnly()) {
+        root.appendChild(emptyEl('users', '아직 받아온 기록이 없습니다',
+          PA.backup.isConnected()
+            ? '주 기기에서 백업하면 여기에 나타납니다. 설정에서 「지금 새로 받기」를 눌러 보세요.'
+            : '설정 → 저장 드라이브에서 아이 폰과 같은 계정을 연결하세요.'));
+        root.appendChild(el('button', {
+          class: 'btn primary block', style: { marginTop: '14px' },
+          html: icon('refresh', 17) + '<span>지금 새로 받기</span>',
+          onclick: async (e) => {
+            e.currentTarget.disabled = true;
+            try {
+              const r = await PA.backup.pullIfNewer();
+              if (r.pulled) { toast('기록을 받았습니다.'); PA.views.app.refresh(); }
+              else toast(r.reason === 'no-backup' ? '드라이브에 아직 백업이 없습니다.' : '드라이브가 연결돼 있지 않습니다.', 'warn');
+            } catch (err) { toast(err.message, 'warn'); }
+            e.currentTarget.disabled = false;
+          },
+        }));
+        return;
+      }
       root.appendChild(emptyEl('music', '아직 곡이 없습니다', '아래 + 버튼으로 첫 곡을 추가하세요.'));
       root.appendChild(el('button', {
         class: 'btn primary block', style: { marginTop: '14px' },
@@ -50,7 +72,7 @@ window.PA = window.PA || {};
               class: 'btn sm', html: icon('swap', 15) + '<span>곡 전환</span>',
               onclick: openSongSwitcher,
             }),
-            el('button', {
+            PA.store.isReadOnly() ? null : el('button', {
               class: 'btn sm ghost', html: icon('edit', 15), 'aria-label': '곡 수정',
               onclick: () => editSong(song),
             }),
@@ -170,7 +192,7 @@ window.PA = window.PA || {};
     const wrap = el('div');
     wrap.appendChild(el('div', { class: 'section-title' }, [
       el('span', { text: '최근 녹음' }), el('span', { class: 'rule' }),
-      el('button', { class: 'btn sm ghost', html: icon('mic', 15) + '<span>녹음</span>', onclick: () => PA.views.practice.openRecorder(song, null, () => PA.views.app.refresh()) }),
+      PA.store.isReadOnly() ? null : el('button', { class: 'btn sm ghost', html: icon('mic', 15) + '<span>녹음</span>', onclick: () => PA.views.practice.openRecorder(song, null, () => PA.views.app.refresh()) }),
     ]));
 
     const recs = (song.recordings || []).slice(0, 4);
@@ -214,7 +236,7 @@ window.PA = window.PA || {};
     const wrap = el('div');
     wrap.appendChild(el('div', { class: 'section-title' }, [
       el('span', { text: '내 곡' }), el('span', { class: 'rule' }),
-      el('button', { class: 'btn sm ghost', html: icon('plus', 15), 'aria-label': '곡 추가', onclick: () => editSong(null) }),
+      PA.store.isReadOnly() ? null : el('button', { class: 'btn sm ghost', html: icon('plus', 15), 'aria-label': '곡 추가', onclick: () => editSong(null) }),
     ]));
 
     const rows = PA.metrics.compareSongs(14);

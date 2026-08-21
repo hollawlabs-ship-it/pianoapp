@@ -107,9 +107,16 @@ window.PA = window.PA || {};
     const tab = TABS.find((t) => t.id === currentTab);
     const song = PA.store.activeSong();
 
+    const viewer = PA.store.isReadOnly();
     topbar.appendChild(el('div', { style: { minWidth: 0 } }, [
-      el('h1', { text: tab.title }),
-      el('div', { class: 'sub truncate', text: song ? `${song.title} · ${tab.sub}` : tab.sub }),
+      el('div', { class: 'row', style: { gap: '7px' } }, [
+        el('h1', { text: tab.title }),
+        // 편집이 왜 안 되는지 화면에서 바로 보이게 한다
+        viewer ? el('span', { class: 'badge stale', text: '보기 전용' }) : null,
+      ]),
+      el('div', { class: 'sub truncate', text: viewer
+        ? (song ? `${song.title} · ${PA.backup.lastSyncLabel()}` : PA.backup.lastSyncLabel())
+        : (song ? `${song.title} · ${tab.sub}` : tab.sub) }),
     ]));
     topbar.appendChild(el('div', { class: 'topbar-actions' }, [
       song ? el('button', {
@@ -244,6 +251,9 @@ window.PA = window.PA || {};
         ]),
       ]),
 
+      /* 기기 역할 */
+      roleSection(),
+
       /* 저장 공간 */
       storageSection(),
 
@@ -325,6 +335,79 @@ window.PA = window.PA || {};
 
     const sheet = PA.sheets.open({ title: '설정', body });
     return sheet;
+  }
+
+  /* ---------------- 기기 역할 (주 기기 / 보기 전용) ---------------- */
+  function roleSection() {
+    const host = el('div');
+    const render = () => {
+      clear(host);
+      const viewer = PA.store.isReadOnly();
+
+      host.appendChild(el('div', { class: 'section-title', style: { marginTop: 0 } }, [
+        el('span', { text: '이 기기의 역할' }), el('span', { class: 'rule' }),
+      ]));
+      host.appendChild(el('p', { class: 'small muted', style: { marginBottom: '10px' }, text:
+        '한 기록을 두 폰에서 함께 볼 때, 양쪽이 다 편집하면 나중에 백업한 쪽이 상대의 기록을 덮어씁니다. ' +
+        '그래서 쓰는 기기는 하나로 정합니다.' }));
+
+      const opt = (id, title, desc) => {
+        const on = (id === 'viewer') === viewer;
+        const card = el('div', {
+          class: 'card tap',
+          style: on ? { borderColor: 'var(--ebony)', borderWidth: '1.5px', marginBottom: '8px' } : { marginBottom: '8px' },
+        }, [
+          el('div', { class: 'row' }, [
+            el('span', { style: { fontWeight: 700 }, text: title }),
+            el('span', { class: 'spacer' }),
+            on ? el('span', { class: 'badge stale', text: '현재' }) : null,
+          ]),
+          el('p', { class: 'tiny muted', style: { marginTop: '4px', lineHeight: '1.6' }, text: desc }),
+        ]);
+        card.addEventListener('click', async () => {
+          if (on) return;
+          if (id === 'viewer') {
+            const ok = await PA.sheets.confirm({
+              title: '보기 전용으로 바꾸기',
+              message: '이 기기에서는 더 이상 별점·메모·녹음·레슨을 바꿀 수 없게 됩니다. ' +
+                       '앱을 열 때마다 주 기기의 최신 기록을 자동으로 받아옵니다.\n\n' +
+                       '이 기기에만 있는 기록이 있다면 먼저 백업하세요. 받아오는 순간 덮어써집니다.',
+              danger: true, confirmLabel: '보기 전용으로',
+            });
+            if (!ok) return;
+          }
+          PA.store.setRole(id);
+          toast(id === 'viewer' ? '보기 전용 기기가 됐습니다.' : '주 기기가 됐습니다.');
+          openSettings();
+        });
+        return card;
+      };
+
+      host.appendChild(opt('owner', '주 기기 — 아이 폰',
+        '연습·녹음·별점·레슨을 기록합니다. 드라이브에 백업하는 쪽입니다.'));
+      host.appendChild(opt('viewer', '보기 전용 — 부모 폰',
+        '기록을 보기만 합니다. 편집이 잠기고, 열 때마다 주 기기의 최신 기록을 받아옵니다.'));
+
+      if (viewer) {
+        const pullBtn = el('button', {
+          class: 'btn block', html: icon('refresh', 16) + '<span>지금 새로 받기</span>',
+          onclick: async (e) => {
+            e.currentTarget.disabled = true;
+            try {
+              const r = await PA.backup.pullIfNewer();
+              if (r.pulled) { toast('최신 기록을 받았습니다.'); PA.views.app.refresh(); }
+              else if (r.reason === 'up-to-date') toast('이미 최신입니다.');
+              else if (r.reason === 'no-backup') toast('드라이브에 백업이 없습니다.', 'warn');
+              else toast('드라이브가 연결돼 있지 않습니다.', 'warn');
+            } catch (err) { toast(err.message, 'warn'); }
+            e.currentTarget.disabled = false;
+          },
+        });
+        host.appendChild(pullBtn);
+      }
+      return host;
+    };
+    return render();
   }
 
   /* ---------------- 저장 공간 · 유실 위험 ---------------- */

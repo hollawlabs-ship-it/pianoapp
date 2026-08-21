@@ -19,11 +19,15 @@ window.PA = window.PA || {};
 
     root.appendChild(el('div', { class: 'section-title' }, [
       el('span', { text: '레슨 기록' }), el('span', { class: 'rule' }),
-      el('button', { class: 'btn sm accent', html: icon('plus', 15) + '<span>레슨</span>', onclick: () => openLessonEditor(song, null) }),
+      PA.store.isReadOnly() ? null
+        : el('button', { class: 'btn sm accent', html: icon('plus', 15) + '<span>레슨</span>', onclick: () => openLessonEditor(song, null) }),
     ]));
 
     if (!song.lessons.length) {
-      root.appendChild(emptyEl('notebook', '레슨 기록이 없습니다', '클로바노트 전사를 붙여넣으면 지적사항과 하루별 스케줄이 만들어집니다.'));
+      root.appendChild(emptyEl('notebook', '레슨 기록이 없습니다',
+        PA.store.isReadOnly()
+          ? '주 기기에서 레슨을 기록하면 여기에 나타납니다.'
+          : '클로바노트 전사를 붙여넣으면 지적사항과 하루별 스케줄이 만들어집니다.'));
       return;
     }
     const list = el('div', { class: 'stack' });
@@ -85,8 +89,14 @@ window.PA = window.PA || {};
     const dim = PA.store.DIM_MAP[it.dimension] || DIMS[0];
     const age = U.daysBetween(it.lessonDate, U.todayKey());
 
-    const chk = el('button', { class: 'check' + (it.resolved ? ' on' : ''), html: icon('check', 13) });
-    chk.addEventListener('click', (e) => {
+    // 보기 전용에서는 체크가 아니라 '상태 표시'로만 쓴다
+    const ro = PA.store.isReadOnly();
+    const chk = el(ro ? 'span' : 'button', {
+      class: 'check' + (it.resolved ? ' on' : ''),
+      html: icon('check', 13),
+      style: ro ? { pointerEvents: 'none' } : null,
+    });
+    if (!ro) chk.addEventListener('click', (e) => {
       e.stopPropagation();
       PA.store.toggleIssue(song.id, it.lessonId, it.index);
       toast(it.resolved ? '미해소로 되돌림' : '해소로 표시');
@@ -155,18 +165,19 @@ window.PA = window.PA || {};
 
   function detailBody(song, lesson, refresh) {
     const a = lesson.analysis;
+    const ro = PA.store.isReadOnly();
     const wrap = el('div', { class: 'stack', style: { gap: '16px' } });
 
     wrap.appendChild(el('div', { class: 'row wrap', style: { gap: '6px' } }, [
       el('span', { class: 'chip outline', text: U.fmtDate(lesson.date) + ' ' + U.weekday(lesson.date) }),
       lesson.teacher ? el('span', { class: 'chip outline', text: lesson.teacher }) : null,
       el('span', { class: 'spacer' }),
-      el('button', { class: 'btn sm ghost', html: icon('edit', 15), 'aria-label': '수정', onclick: () => { openLessonEditor(song, lesson, refresh); } }),
+      ro ? null : el('button', { class: 'btn sm ghost', html: icon('edit', 15), 'aria-label': '수정', onclick: () => { openLessonEditor(song, lesson, refresh); } }),
     ]));
 
     if (!a) {
       wrap.appendChild(emptyEl('sparkles', '아직 분석하지 않았습니다', '전사를 넣고 분석을 실행하세요.'));
-      wrap.appendChild(analyzeButton(song, lesson, refresh));
+      if (!ro) wrap.appendChild(analyzeButton(song, lesson, refresh));
       wrap.appendChild(transcriptBlock(lesson));
       return wrap;
     }
@@ -187,8 +198,11 @@ window.PA = window.PA || {};
       a.issues.forEach((it, idx) => {
         const sec = (song.sections || []).find((s) => s.id === it.sectionId);
         const dim = PA.store.DIM_MAP[it.dimension] || DIMS[0];
-        const chk = el('button', { class: 'check' + (it.resolved ? ' on' : ''), html: icon('check', 13) });
-        chk.addEventListener('click', () => { PA.store.toggleIssue(song.id, lesson.id, idx); refresh(); });
+        const chk = el(ro ? 'span' : 'button', {
+          class: 'check' + (it.resolved ? ' on' : ''), html: icon('check', 13),
+          style: ro ? { pointerEvents: 'none' } : null,
+        });
+        if (!ro) chk.addEventListener('click', () => { PA.store.toggleIssue(song.id, lesson.id, idx); refresh(); });
         box.appendChild(el('div', { class: 'item' }, [
           chk,
           el('div', { class: 'body' }, [
@@ -240,8 +254,11 @@ window.PA = window.PA || {};
           ]),
         ]);
         (day.tasks || []).forEach((t, ti) => {
-          const chk = el('button', { class: 'check' + (t.done ? ' on' : ''), html: icon('check', 13) });
-          chk.addEventListener('click', () => { PA.store.toggleTask(song.id, lesson.id, di, ti); refresh(); });
+          const chk = el(ro ? 'span' : 'button', {
+            class: 'check' + (t.done ? ' on' : ''), html: icon('check', 13),
+            style: ro ? { pointerEvents: 'none' } : null,
+          });
+          if (!ro) chk.addEventListener('click', () => { PA.store.toggleTask(song.id, lesson.id, di, ti); refresh(); });
           card.appendChild(el('div', { class: 'row', style: { alignItems: 'flex-start', gap: '9px', marginTop: '9px' } }, [
             chk,
             el('span', { class: 'small', style: { lineHeight: '1.5', textDecoration: t.done ? 'line-through' : '', opacity: t.done ? .5 : 1 }, text: t.text }),
@@ -258,7 +275,7 @@ window.PA = window.PA || {};
       wrap.appendChild(box);
     }
 
-    wrap.appendChild(analyzeButton(song, lesson, refresh, true));
+    if (!ro) wrap.appendChild(analyzeButton(song, lesson, refresh, true));
     wrap.appendChild(transcriptBlock(lesson));
     return wrap;
   }

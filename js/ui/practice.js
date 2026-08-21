@@ -21,9 +21,10 @@ window.PA = window.PA || {};
     root.appendChild(tools(song));
     root.appendChild(todayFocus(song));
 
+    const ro = PA.store.isReadOnly();
     root.appendChild(el('div', { class: 'section-title' }, [
       el('span', { text: '구간' }), el('span', { class: 'rule' }),
-      el('button', {
+      ro ? null : el('button', {
         class: 'btn ghost sm', html: icon('plus', 15) + '<span>구간</span>',
         onclick: () => editSection(song, null),
       }),
@@ -61,7 +62,7 @@ window.PA = window.PA || {};
           el('span', { class: 'tiny mono', text: `♩=${song.tempoCurrent} → ${song.tempoTarget}` }),
         ]),
         barEl(pct, { goal: 100 }),
-        el('div', { class: 'row', style: { marginTop: '8px', gap: '6px' } }, [
+        PA.store.isReadOnly() ? null : el('div', { class: 'row', style: { marginTop: '8px', gap: '6px' } }, [
           el('button', { class: 'btn sm', text: '−4', onclick: () => bumpTempo(song, -4) }),
           el('button', { class: 'btn sm', text: '+4', onclick: () => bumpTempo(song, 4) }),
           el('span', { class: 'spacer' }),
@@ -228,7 +229,7 @@ window.PA = window.PA || {};
         el('span', { class: 'tiny faint', text: `오늘 ${U.fmtMinutes(todaySec)}` }),
       ]),
       el('div', { class: 'row wrap', style: { marginTop: '8px', gap: '6px' } }, [
-        startBtn, timeLabel, el('span', { class: 'spacer' }), saveBtn,
+        startBtn, timeLabel, el('span', { class: 'spacer' }), PA.store.isReadOnly() ? null : saveBtn,
       ]),
       el('p', { class: 'tiny faint', style: { marginTop: '6px' }, text: '기록한 시간은 이 곡에 귀속됩니다.' }),
     ]);
@@ -290,6 +291,7 @@ window.PA = window.PA || {};
 
   function sectionBody(song, sec, refresh) {
     const r = PA.store.rating(song.id, sec.id);
+    const ro = PA.store.isReadOnly();
     const wrap = el('div', { class: 'stack', style: { gap: '16px' } });
 
     /* 정보 */
@@ -297,7 +299,7 @@ window.PA = window.PA || {};
       sec.bars ? el('span', { class: 'chip outline', text: sec.bars }) : null,
       el('span', { class: 'chip accent', text: (PA.store.DIM_MAP[sec.focus] || DIMS[0]).label + ' 집중' }),
       el('span', { class: 'spacer' }),
-      el('button', { class: 'btn sm ghost', html: icon('edit', 15), 'aria-label': '구간 수정', onclick: () => editSection(song, sec, refresh) }),
+      ro ? null : el('button', { class: 'btn sm ghost', html: icon('edit', 15), 'aria-label': '구간 수정', onclick: () => editSection(song, sec, refresh) }),
     ]));
     if (sec.character) wrap.appendChild(el('p', { class: 'small muted', text: sec.character }));
     if (sec.note) wrap.appendChild(el('div', { class: 'card', style: { background: 'var(--surface-2)' } }, [
@@ -313,7 +315,7 @@ window.PA = window.PA || {};
           el('span', { class: 'dim-dot', style: { background: d.color } }),
           el('span', { text: d.label }),
         ]),
-        starsEl(r[d.id] || 0, (v) => { PA.store.setRating(song.id, sec.id, d.id, v); refresh(); }),
+        starsEl(r[d.id] || 0, ro ? null : (v) => { PA.store.setRating(song.id, sec.id, d.id, v); refresh(); }),
         el('span', { class: 'spacer' }),
         el('button', {
           class: 'btn ghost sm', html: icon('sparkles', 14), 'aria-label': d.label + ' 설명',
@@ -328,18 +330,19 @@ window.PA = window.PA || {};
     /* 메모 */
     wrap.appendChild(el('div', { class: 'section-title' }, [el('span', { text: '메모' }), el('span', { class: 'rule' })]));
     const memo = el('textarea', {
-      class: 'textarea', placeholder: '오늘 알아낸 것, 다음에 시도할 것…',
+      class: 'textarea', placeholder: ro ? '' : '오늘 알아낸 것, 다음에 시도할 것…',
       style: { minHeight: '84px' },
+      readonly: ro,
     });
     memo.value = r.memo || '';
-    memo.addEventListener('input', U.debounce(() => PA.store.setMemo(song.id, sec.id, memo.value), 500));
+    if (!ro) memo.addEventListener('input', U.debounce(() => PA.store.setMemo(song.id, sec.id, memo.value), 500));
     wrap.appendChild(memo);
 
     /* 녹음 */
     wrap.appendChild(el('div', { class: 'section-title' }, [
       el('span', { text: '녹음' }), el('span', { class: 'rule' }),
-      el('button', { class: 'btn sm accent', html: icon('mic', 15) + '<span>녹음</span>', onclick: () => openRecorder(song, sec, refresh) }),
-      el('button', { class: 'btn sm ghost', html: icon('upload', 15), 'aria-label': '파일 업로드', onclick: () => openUpload(song, sec, refresh) }),
+      ro ? null : el('button', { class: 'btn sm accent', html: icon('mic', 15) + '<span>녹음</span>', onclick: () => openRecorder(song, sec, refresh) }),
+      ro ? null : el('button', { class: 'btn sm ghost', html: icon('upload', 15), 'aria-label': '파일 업로드', onclick: () => openUpload(song, sec, refresh) }),
     ]));
     wrap.appendChild(recordingList(song, sec, refresh));
 

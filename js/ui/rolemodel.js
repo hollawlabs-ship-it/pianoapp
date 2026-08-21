@@ -34,7 +34,8 @@ window.PA = window.PA || {};
 
     root.appendChild(el('div', { class: 'section-title' }, [
       el('span', { text: `롤모델 ${song.roleModels.length}` }), el('span', { class: 'rule' }),
-      el('button', { class: 'btn sm ghost', html: icon('plus', 15) + '<span>직접 추가</span>', onclick: () => editRoleModel(song, null) }),
+      PA.store.isReadOnly() ? null
+        : el('button', { class: 'btn sm ghost', html: icon('plus', 15) + '<span>직접 추가</span>', onclick: () => editRoleModel(song, null) }),
     ]));
 
     if (!song.roleModels.length) {

@@ -105,6 +105,24 @@ window.PA = window.PA || {};
     });
   }
 
+  /* ---------- 기기 역할 ----------
+     한 기록을 두 기기에서 같이 볼 때, 양쪽이 다 편집하면 나중에 백업한 쪽이
+     상대의 기록을 통째로 덮어쓴다. 서버가 없으므로 필드 단위 병합도 못 한다.
+     그래서 쓰는 기기는 하나로 정하고 나머지는 '보기 전용'으로 잠근다.
+
+     역할은 기기마다 다르므로 state가 아니라 localStorage에 둔다.
+     state에 넣으면 복원하는 순간 부모 폰까지 주 기기로 바뀐다. */
+  const ROLE_KEY = 'pianoapp.deviceRole';
+  const getRole = () => {
+    try { return localStorage.getItem(ROLE_KEY) === 'viewer' ? 'viewer' : 'owner'; }
+    catch (e) { return 'owner'; }
+  };
+  const isReadOnly = () => getRole() === 'viewer';
+  function setRole(role) {
+    try { localStorage.setItem(ROLE_KEY, role === 'viewer' ? 'viewer' : 'owner'); } catch (e) {}
+    emit('role');
+  }
+
   /* ---------- 상태 ---------- */
   let state = null;
   const listeners = new Set();
@@ -517,9 +535,40 @@ window.PA = window.PA || {};
     emit('import');
   }
 
-  PA.store = {
+  /* 보기 전용에서 막을 함수들.
+     버튼을 하나하나 숨기는 방식은 언젠가 하나를 빠뜨린다. 그래서 데이터를
+     바꾸는 입구를 한 곳에서 막는다. UI 숨김은 그 위의 편의일 뿐이다.
+     importJSON(복원)과 setSettings/setRole은 보기 전용에서도 필요하므로 제외. */
+  const LOCKED = [
+    'addSong', 'updateSong', 'removeSong',
+    'addSection', 'updateSection', 'removeSection',
+    'setRating', 'setMemo',
+    'addRecording', 'updateRecording', 'removeRecording',
+    'addLesson', 'updateLesson', 'removeLesson',
+    'toggleIssue', 'toggleTask', 'logPractice',
+    'addRoleModel', 'updateRoleModel', 'setPrimaryRoleModel', 'removeRoleModel',
+    'pushSnapshot',
+  ];
+
+  function lockReadOnly(api) {
+    LOCKED.forEach((name) => {
+      const fn = api[name];
+      if (typeof fn !== 'function') return;
+      api[name] = function () {
+        if (isReadOnly()) {
+          PA.util.toast('보기 전용 기기입니다. 기록은 주 기기에서만 바꿀 수 있습니다.', 'warn');
+          return null;
+        }
+        return fn.apply(this, arguments);
+      };
+    });
+    return api;
+  }
+
+  PA.store = lockReadOnly({
     DIMENSIONS, DIM_MAP,
     load, get, subscribe, emit, save,
+    getRole, setRole, isReadOnly,
     songs, activeSong, songById, setActiveSong,
     addSong, updateSong, removeSong,
     addSection, updateSection, removeSection,
@@ -531,5 +580,5 @@ window.PA = window.PA || {};
     setSettings, pushSnapshot, exportJSON, importJSON,
     getApiKey, setApiKey, setRememberKey, clearApiKey, keyIsRemembered: keystore.isRemembered,
     getBlob, putBlob, delBlob, listBlobKeys,
-  };
+  });
 })(window.PA);

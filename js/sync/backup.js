@@ -129,6 +129,10 @@ window.PA = window.PA || {};
     const p = provider();
     if (!p) throw new Error('저장 드라이브가 연결돼 있지 않습니다.');
     if (status.busy) throw new Error('이미 작업 중입니다.');
+    // 보기 전용 기기가 올리면 주 기기의 기록을 덮어쓴다. 입구에서 막는다.
+    if (PA.store.isReadOnly()) {
+      throw new Error('보기 전용 기기는 백업하지 않습니다. 기록은 주 기기에서 올라옵니다.');
+    }
 
     emit({ busy: true, step: '기록을 모으는 중', progress: 0, error: null });
     try {
@@ -323,6 +327,29 @@ window.PA = window.PA || {};
     }
     PA.store.subscribe(() => scheduleAuto());
     emit();
+
+    // 보기 전용 기기는 열 때마다 최신 기록을 당겨온다.
+    // 부모 폰에서 아이 기록을 보려고 매번 버튼을 누를 이유가 없다.
+    if (PA.store.isReadOnly() && isConnected()) {
+      pullIfNewer().catch(() => {});
+    }
+  }
+
+  /**
+   * 원격이 내가 마지막으로 받은 것보다 새로우면 당겨온다.
+   * 보기 전용 기기의 로컬 기록은 원격의 사본일 뿐이므로 덮어써도 잃을 것이 없다.
+   * 같은 내용이면 아무 것도 하지 않는다 — 열 때마다 녹음을 다시 받으면 느리고 비싸다.
+   */
+  async function pullIfNewer() {
+    if (!isConnected()) return { pulled: false, reason: 'not-connected' };
+    const remote = await readManifest();
+    if (!remote) return { pulled: false, reason: 'no-backup' };
+    const seen = lastSync();
+    if (seen && seen.remoteSavedAt && remote.savedAt <= seen.remoteSavedAt) {
+      return { pulled: false, reason: 'up-to-date', manifest: remote };
+    }
+    const res = await restore({ audio: options().includeAudio });
+    return { pulled: true, ...res };
   }
 
   /** 사람이 읽는 마지막 백업 시각 */
@@ -340,7 +367,7 @@ window.PA = window.PA || {};
 
   PA.backup = {
     init, backup, restore, preview, checkConflict, readManifest,
-    provider, setProvider, currentId, isConnected,
+    provider, setProvider, currentId, isConnected, pullIfNewer,
     options, setOptions, subscribe, getStatus,
     deviceId, deviceName, setDeviceName, lastSync, lastSyncLabel,
     scheduleAuto, extOf,
