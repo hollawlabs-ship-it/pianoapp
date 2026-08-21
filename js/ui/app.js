@@ -655,10 +655,12 @@ window.PA = window.PA || {};
             appKey = await PA.sheets.prompt({
               title: '드롭박스 앱 키',
               label: 'App key',
-              hint: 'dropbox.com/developers → Create app → Scoped access → App folder 로 앱을 만들고, ' +
-                    'Permissions에서 files.content.read / files.content.write 를 켠 뒤, ' +
-                    'Redirect URI에 ' + PA.providers.dropbox.redirectUri() + ' 를 등록하세요. ' +
-                    '앱 키는 비밀번호가 아니라 공개 식별자입니다.',
+              hint: 'dropbox.com/developers → Create app → Scoped access → App folder 로 앱을 만드세요. ' +
+                    'Permissions 탭에서 account_info.read / files.metadata.read / ' +
+                    'files.content.read / files.content.write 4개를 켜고 Submit 한 뒤, ' +
+                    'Settings 탭의 Redirect URIs에 ' + PA.providers.dropbox.redirectUri() + ' 를 ' +
+                    '끝 슬래시까지 똑같이 등록하세요. 권한을 저장하기 전에 연결하면 실패합니다. ' +
+                    'App key는 비밀번호가 아니라 공개 식별자입니다. App secret은 쓰지 않으니 복사하지 마세요.',
             });
             if (!appKey) return;
           }

@@ -35,6 +35,20 @@ window.PA = window.PA || {};
      접근할 수 없고, 앱 키(client_id)는 비밀이 아니라 공개 식별자다.
      PKCE라서 client_secret 없이 정적 호스팅에서 동작한다. */
 
+  /* 여기에 드롭박스 앱 키를 넣어 두면 기기마다 붙여넣지 않아도 된다.
+     앱 키는 비밀이 아니라 공개 식별자다(client_id). PKCE라서 앱 시크릿은 쓰지 않으며,
+     시크릿은 절대 여기에 넣으면 안 된다. */
+  const DEFAULT_APP_KEY = '';
+
+  /* 이 앱이 실제로 호출하는 엔드포인트에 필요한 권한만 요청한다.
+     콘솔의 Permissions 탭에서도 같은 항목이 켜져 있어야 한다. */
+  const DBX_SCOPES = [
+    'account_info.read',      // 어느 계정에 연결됐는지 표시 (두 폰이 같은 계정인지 확인용)
+    'files.metadata.read',    // 이미 올라간 녹음 목록 조회
+    'files.content.read',     // 복원
+    'files.content.write',    // 백업
+  ].join(' ');
+
   const DBX = {
     LS_KEY: 'pianoapp.dropbox',        // { refreshToken, appKey, account }
     VERIFIER: 'pianoapp.dbxVerifier',
@@ -62,6 +76,9 @@ window.PA = window.PA || {};
     return location.origin + location.pathname;
   }
 
+  /** 이 기기에 저장된 앱 키. 없으면 내장 기본 키를 쓴다. */
+  const dbxAppKey = () => (dbxSaved().appKey || DEFAULT_APP_KEY || '').trim();
+
   async function dbxBeginAuth(appKey) {
     if (!appKey) throw new Error('드롭박스 앱 키가 필요합니다.');
     const verifier = randomVerifier();
@@ -78,6 +95,7 @@ window.PA = window.PA || {};
       code_challenge: challenge,
       code_challenge_method: 'S256',
       token_access_type: 'offline',      // refresh_token 발급
+      scope: DBX_SCOPES,                 // 필요한 권한을 명시해 동의 화면에서 바로 보이게 한다
       redirect_uri: dbxRedirectUri(),
     });
     location.href = `${DBX.AUTH}?${q.toString()}`;
@@ -93,7 +111,7 @@ window.PA = window.PA || {};
       try { return sessionStorage.getItem(DBX.VERIFIER) || localStorage.getItem(DBX.VERIFIER); }
       catch (e) { return null; }
     })();
-    const appKey = dbxSaved().appKey;
+    const appKey = dbxAppKey();
 
     // 주소창에서 code를 즉시 지운다 — 새로고침 시 재사용 시도를 막는다
     history.replaceState(null, '', location.origin + location.pathname + location.hash);
@@ -125,7 +143,8 @@ window.PA = window.PA || {};
 
   async function dbxToken() {
     if (dbxAccess.token && Date.now() < dbxAccess.expiresAt - 60000) return dbxAccess.token;
-    const { refreshToken, appKey } = dbxSaved();
+    const { refreshToken } = dbxSaved();
+    const appKey = dbxAppKey();
     if (!refreshToken || !appKey) throw new Error('드롭박스에 연결돼 있지 않습니다.');
 
     const res = await fetch(DBX.TOKEN, {
@@ -164,9 +183,14 @@ window.PA = window.PA || {};
     dbxSave({ account: (acc && acc.email) || (acc && acc.name && acc.name.display_name) || '연결됨' });
   }
 
-  /** Dropbox-API-Arg 헤더는 ASCII만 허용한다. 비ASCII는 \uXXXX로 이스케이프. */
+  /**
+   * Dropbox-API-Arg 헤더는 ASCII만 허용한다. 비ASCII 문자는 \uXXXX로 이스케이프한다.
+   * 리포트 파일명이 한글이라(reports/분석리포트.md) 이 처리가 없으면 업로드가 깨진다.
+   * 범위를 리터럴 제어문자로 적으면 편집·복사 과정에서 조용히 망가지므로 명시적으로 쓴다.
+   */
+  const NON_ASCII = new RegExp('[\\u007f-\\uffff]', 'g');
   const asciiArg = (obj) =>
-    JSON.stringify(obj).replace(/[-￿]/g, (c) =>
+    JSON.stringify(obj).replace(NON_ASCII, (c) =>
       '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4));
 
   const dropbox = {
@@ -174,15 +198,15 @@ window.PA = window.PA || {};
     label: '드롭박스',
     note: '앱 폴더에만 접근합니다. 다른 파일은 보이지 않습니다.',
     available: () => true,
-    needsSetup: () => !dbxSaved().appKey,
+    needsSetup: () => !dbxAppKey(),
     isConnected: () => !!dbxSaved().refreshToken,
-    info: () => ({ account: dbxSaved().account || null, appKey: dbxSaved().appKey || null }),
+    info: () => ({ account: dbxSaved().account || null, appKey: dbxAppKey() || null }),
 
     beginAuth: dbxBeginAuth,
     finishAuth: dbxFinishAuth,
     redirectUri: dbxRedirectUri,
 
-    async connect(appKey) { await dbxBeginAuth(appKey); },
+    async connect(appKey) { await dbxBeginAuth((appKey || '').trim() || dbxAppKey()); },
 
     disconnect() {
       dbxAccess = { token: null, expiresAt: 0 };
