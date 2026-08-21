@@ -1,7 +1,12 @@
 name: Deploy to GitHub Pages
 
 # 빌드 도구가 없는 정적 앱이라 소스를 그대로 올린다.
-# main에 푸시하면 바로 배포된다.
+# main에 푸시하면 gh-pages로 그대로 밀어넣고, 깃허브가 그 브랜치를 서빙한다.
+#
+# 왜 actions/deploy-pages 가 아니라 브랜치 방식인가:
+# 저장소의 Pages Source가 "Deploy from a branch (gh-pages)"로 잡혀 있다.
+# deploy-pages는 Source가 "GitHub Actions"일 때만 동작하므로 여기서는 쓸 수 없다.
+# 브랜치 방식은 저장소 설정을 건드릴 필요가 없다는 장점도 있다.
 
 on:
   push:
@@ -9,9 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 # 배포는 한 번에 하나만. 진행 중인 것은 취소하지 않고 끝나게 둔다.
 concurrency:
@@ -21,9 +24,6 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
 
@@ -40,11 +40,21 @@ jobs:
           echo "app=$APP_V sw=$SW_V"
           test "$APP_V" = "$SW_V" || { echo "버전 불일치: util.js($APP_V) != sw.js($SW_V)"; exit 1; }
 
-      - uses: actions/configure-pages@v5
+      - name: gh-pages로 배포
+        run: git push origin HEAD:gh-pages
 
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: 배포 확인
+        run: |
+          set -e
+          URL="https://hollawlabs-ship-it.github.io/pianoapp/"
+          # 깃허브가 브랜치를 반영하는 데 시간이 걸린다. 버전이 바뀔 때까지 기다린다.
+          WANT=$(grep -oE "PA\.VERSION = '[^']+'" js/core/util.js | grep -oE "v[0-9.]+")
+          for i in $(seq 1 20); do
+            GOT=$(curl -fsS "${URL}js/core/util.js?cb=$i" 2>/dev/null \
+                  | grep -oE "PA\.VERSION = '[^']+'" | grep -oE "v[0-9.]+" || true)
+            if [ "$GOT" = "$WANT" ]; then echo "배포 확인: $GOT"; exit 0; fi
+            echo "대기 중… (받은 값: ${GOT:-없음}, 기대: $WANT)"
+            sleep 15
+          done
+          echo "5분 안에 새 버전이 서빙되지 않았습니다."
+          exit 1
