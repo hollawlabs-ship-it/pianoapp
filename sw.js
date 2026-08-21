@@ -8,7 +8,7 @@
 
    ⚠️ 자산을 바꾸면 아래 VERSION을 반드시 올릴 것. 안 올리면 옛 캐시가 남는다. */
 
-const VERSION = 'v6.7.0';
+const VERSION = 'v6.7.1';
 const CACHE = `pianoapp-${VERSION}`;
 
 const SHELL = [
@@ -23,6 +23,7 @@ const SHELL = [
   './js/core/storage.js',
   './js/audio/envelope.js',
   './js/audio/recorder.js',
+  './js/audio/lessonrec.js',
   './js/audio/metronome.js',
   './js/ai/client.js',
   './js/ai/analysis.js',
@@ -41,6 +42,10 @@ const SHELL = [
   './js/ui/app.js',
   './assets/icon.svg',
   './assets/icon-maskable.svg',
+  './assets/apple-touch-icon-180.png',
+  './assets/icon-192.png',
+  './assets/icon-512.png',
+  './assets/icon-512-maskable.png',
 ];
 
 self.addEventListener('install', (event) => {

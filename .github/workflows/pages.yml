@@ -40,6 +40,20 @@ jobs:
           echo "app=$APP_V sw=$SW_V"
           test "$APP_V" = "$SW_V" || { echo "버전 불일치: util.js($APP_V) != sw.js($SW_V)"; exit 1; }
 
+          # index.html이 부르는 스크립트가 서비스 워커 캐시 목록에도 있어야 한다.
+          # 빠지면 온라인에서는 멀쩡하고 오프라인에서만 그 기능이 죽는다 —
+          # 눈치채기 가장 어려운 형태의 고장이라 여기서 잡는다.
+          MISSING=0
+          for f in $(grep -o 'src="js/[^"]*"' index.html | sed 's/src="//;s/"//'); do
+            grep -q "'\./$f'" sw.js || { echo "sw.js 캐시 목록에 없음: $f"; MISSING=1; }
+            test -f "$f" || { echo "파일이 없음: $f"; MISSING=1; }
+          done
+          test "$MISSING" = "0" || exit 1
+
+          # 홈 화면 아이콘. iOS는 apple-touch-icon에 SVG를 받지 않으므로 PNG가 있어야 한다.
+          test -f assets/apple-touch-icon-180.png || { echo "apple-touch-icon PNG 없음"; exit 1; }
+          grep -q 'apple-touch-icon' index.html || { echo "index.html에 apple-touch-icon 링크 없음"; exit 1; }
+
       - name: gh-pages로 배포
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
