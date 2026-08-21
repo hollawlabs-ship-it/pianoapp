@@ -41,7 +41,14 @@ jobs:
           test "$APP_V" = "$SW_V" || { echo "버전 불일치: util.js($APP_V) != sw.js($SW_V)"; exit 1; }
 
       - name: gh-pages로 배포
-        run: git push origin HEAD:gh-pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          # 자격증명을 명시한다. checkout이 심어둔 헤더에 의존하지 않는다.
+          REMOTE="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          # gh-pages는 main의 거울이다. 갈라질 일이 없으므로 강제로 맞춘다.
+          git push --force "$REMOTE" HEAD:gh-pages
 
       - name: 배포 확인
         run: |
