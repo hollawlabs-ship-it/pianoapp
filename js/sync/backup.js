@@ -3,7 +3,8 @@
 
      manifest.json            언제·어느 기기가 백업했는지, 녹음 목록
      state.json               곡·구간·별점·메모·레슨·연습기록·음량 곡선
-     recordings/<key>.<ext>   녹음 원본 (선택)
+     recordings/<key>.<ext>   연습 녹음 원본 (선택)
+     lessons/<key>.<ext>      레슨 원본 오디오 (선택) — 전사 전인 것은 용량 절약 모드에서도 올린다
 
    '실시간 동기화'가 아니라 '백업·복원'이다. 두 기기가 동시에 편집하는 상황을
    조용히 병합하면 어느 쪽 기록이 사라졌는지 아무도 모르게 된다. 그래서
@@ -23,6 +24,7 @@ window.PA = window.PA || {};
   const MANIFEST = 'manifest.json';
   const STATE = 'state.json';
   const REC_DIR = 'recordings';
+  const LESSON_DIR = 'lessons';   // 레슨 원본 오디오 — 연습 녹음과 섞이지 않게 따로 둔다
 
   const EXT = {
     'audio/webm': 'webm', 'audio/ogg': 'ogg', 'audio/mp4': 'm4a',
@@ -30,6 +32,10 @@ window.PA = window.PA || {};
     'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
   };
   const extOf = (mime) => EXT[(mime || '').split(';')[0]] || 'bin';
+
+  /* 올릴 때와 '이미 있나' 볼 때가 같은 규칙을 써야 한다.
+     한쪽만 바뀌면 매번 전부 다시 올리면서도 아무 오류가 나지 않는다. */
+  const pathOf = (w) => `${w.dir || REC_DIR}/${w.key}.${extOf(w.mime)}`;
 
   /* ---------- 기기 식별 ----------
      상태(state) 안이 아니라 localStorage에 따로 둔다. 상태에 넣으면 복원한 순간
@@ -159,19 +165,33 @@ window.PA = window.PA || {};
           list = list.filter((r) => keep.has(r.id));
         }
         list.forEach((r) => wanted.push({ key: r.blobKey, mime: r.mime, songId: s.id, id: r.id }));
+
+        // 레슨 원본 오디오. 연습 녹음과 판단 기준이 다르다.
+        //
+        // 한 시간짜리라 훨씬 무겁지만, 아직 전사하지 않은 것은 다시 구할 수
+        // 없다. 폰이 고장 나면 그 레슨은 통째로 사라진다. 그래서 용량을
+        // 아끼는 모드에서도 '전사 전'인 것만은 올린다. 전사를 끝냈다면
+        // 값어치는 텍스트에 있고 오디오는 없어도 되므로 전체 모드에서만 올린다.
+        (s.lessons || []).forEach((l) => {
+          if (!l.audioKey) return;
+          const irreplaceable = !(l.transcript || '').trim();
+          if (opts.audioScope === 'key' && !irreplaceable) return;
+          wanted.push({ key: l.audioKey, mime: l.audioMime || 'audio/mp4', songId: s.id, id: l.id, dir: LESSON_DIR });
+        });
       });
 
       let remoteRecs = [];
       if (opts.includeAudio) {
         emit({ step: '드라이브 상태 확인 중', progress: 0.05 });
         try { remoteRecs = await p.listFiles(REC_DIR); } catch (e) { remoteRecs = []; }
+        try { remoteRecs = remoteRecs.concat(await p.listFiles(LESSON_DIR)); } catch (e) {}
       }
       const remoteSet = new Set(remoteRecs.map((f) => f.path));
 
       const entries = [];
       let uploaded = 0;
       const todo = opts.includeAudio
-        ? wanted.filter((w) => !remoteSet.has(`${REC_DIR}/${w.key}.${extOf(w.mime)}`))
+        ? wanted.filter((w) => !remoteSet.has(pathOf(w)))
         : [];
 
       // 녹음 업로드 (이미 올라간 것은 건너뛴다 — 매번 전부 올리면 느리고 비싸다)
@@ -180,12 +200,12 @@ window.PA = window.PA || {};
         emit({ step: `녹음 올리는 중 ${i + 1}/${todo.length}`, progress: 0.1 + 0.75 * (i / Math.max(1, todo.length)) });
         const blob = await PA.store.getBlob(w.key);
         if (!blob) continue;
-        const path = `${REC_DIR}/${w.key}.${extOf(w.mime)}`;
+        const path = pathOf(w);
         await p.putFile(path, blob);
         uploaded++;
       }
       if (opts.includeAudio) {
-        wanted.forEach((w) => entries.push({ key: w.key, path: `${REC_DIR}/${w.key}.${extOf(w.mime)}`, mime: w.mime }));
+        wanted.forEach((w) => entries.push({ key: w.key, path: pathOf(w), mime: w.mime }));
       }
 
       emit({ step: '기록 저장 중', progress: 0.9 });

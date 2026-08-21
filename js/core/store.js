@@ -246,6 +246,8 @@ window.PA = window.PA || {};
     const s = songById(id);
     if (!s) return;
     for (const r of s.recordings) if (r.blobKey) await delBlob(r.blobKey);
+    /* 레슨 원본 오디오도 같이 지운다 — 곡을 지웠으면 찾을 길이 없다. */
+    for (const l of s.lessons || []) if (l.audioKey) await delBlob(l.audioKey);
     state.songs = state.songs.filter((x) => x.id !== id);
     if (state.activeSongId === id) state.activeSongId = state.songs[0] ? state.songs[0].id : null;
     emit('song');
@@ -358,6 +360,8 @@ window.PA = window.PA || {};
       {
         id: uid('lesson'), date: todayKey(), teacher: '', transcript: '',
         analysis: null, analyzedAt: null, analyzedBy: null,
+        /* 레슨 원본 오디오. 전사 전까지 보관하고, 분석은 전사 텍스트로 한다. */
+        audioKey: null, audioMime: '', audioDuration: 0, audioAt: null, audioSource: null,
       },
       data || {}
     );
@@ -372,10 +376,41 @@ window.PA = window.PA || {};
     Object.assign(l, patch);
     emit('lesson');
   }
-  function removeLesson(songId, lessonId) {
+  async function removeLesson(songId, lessonId) {
     const s = songById(songId);
     if (!s) return;
+    /* 딸린 오디오가 있으면 같이 지운다. 한 시간짜리가
+       고아로 남으면 용량만 먹고 찾을 길도 없다. */
+    const l = s.lessons.find((x) => x.id === lessonId);
+    if (l && l.audioKey) { try { await delBlob(l.audioKey); } catch (e) {} }
     s.lessons = s.lessons.filter((x) => x.id !== lessonId);
+    emit('lesson');
+  }
+
+  /** 레슨에 원본 오디오를 붙인다. 기존 것은 교체한다. */
+  async function setLessonAudio(songId, lessonId, blob, meta) {
+    const s = songById(songId);
+    const l = s && s.lessons.find((x) => x.id === lessonId);
+    if (!l || !blob) return null;
+    if (l.audioKey) { try { await delBlob(l.audioKey); } catch (e) {} }
+    const key = uid('lsaudio');
+    await putBlob(key, blob);
+    l.audioKey = key;
+    l.audioMime = blob.type || (meta && meta.mime) || 'audio/mp4';
+    l.audioDuration = (meta && meta.duration) || 0;
+    l.audioSource = (meta && meta.source) || 'mic';
+    l.audioAt = Date.now();
+    emit('lesson');
+    return l;
+  }
+
+  /** 전사가 끝난 뒤 원본만 버릴 때 쓴다. 기록은 남기고 용량만 돌려받는다. */
+  async function removeLessonAudio(songId, lessonId) {
+    const s = songById(songId);
+    const l = s && s.lessons.find((x) => x.id === lessonId);
+    if (!l || !l.audioKey) return;
+    try { await delBlob(l.audioKey); } catch (e) {}
+    l.audioKey = null; l.audioMime = ''; l.audioDuration = 0; l.audioAt = null; l.audioSource = null;
     emit('lesson');
   }
 
@@ -545,6 +580,7 @@ window.PA = window.PA || {};
     'setRating', 'setMemo',
     'addRecording', 'updateRecording', 'removeRecording',
     'addLesson', 'updateLesson', 'removeLesson',
+    'setLessonAudio', 'removeLessonAudio',
     'toggleIssue', 'toggleTask', 'logPractice',
     'addRoleModel', 'updateRoleModel', 'setPrimaryRoleModel', 'removeRoleModel',
     'pushSnapshot',
@@ -575,6 +611,7 @@ window.PA = window.PA || {};
     rating, setRating, setMemo,
     addRecording, updateRecording, removeRecording, recordingsFor,
     addLesson, updateLesson, removeLesson, allIssues, toggleIssue, toggleTask,
+    setLessonAudio, removeLessonAudio,
     logPractice, practiceByDay, totalPractice,
     addRoleModel, updateRoleModel, setPrimaryRoleModel, removeRoleModel,
     setSettings, pushSnapshot, exportJSON, importJSON,

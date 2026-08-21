@@ -94,7 +94,9 @@ window.PA = window.PA || {};
           el('p', { class: 'small muted', text: opts.message || '' }),
         ]),
         actions: [
-          { label: '취소', onClick: (a) => { finish(false); a.close(); } },
+          /* 거절 쪽에도 이름을 줄 수 있어야 한다. '취소'가 늘 맞는 말은 아니다 —
+             '나중에'나 '버리기'처럼 그 자리에서 뜻이 분명한 말이 따로 있다. */
+          { label: opts.cancelLabel || '취소', onClick: (a) => { finish(false); a.close(); } },
           {
             label: opts.confirmLabel || '확인',
             kind: opts.danger ? 'danger' : 'primary',

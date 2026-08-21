@@ -60,6 +60,13 @@ window.PA = window.PA || {};
 
     refresh();
     setTimeout(maybeWelcome, 400);
+    /* 지난번 레슨 녹음이 끊긴 채 남아 있으면 복구를 제안한다.
+       환영 시트와 겹치지 않도록 뒤에 세운다. */
+    setTimeout(() => {
+      if (PA.views.lesson && PA.views.lesson.checkPendingRecording) {
+        PA.views.lesson.checkPendingRecording();
+      }
+    }, 1200);
   }
 
   /* ---------------- 내비 ---------------- */
@@ -411,6 +418,26 @@ window.PA = window.PA || {};
   }
 
   /* ---------------- 저장 공간 · 유실 위험 ---------------- */
+  /** 레슨 원본 오디오가 차지하는 용량. 전사 여부로 나눠 센다. */
+  async function lessonAudioUsage() {
+    const out = { count: 0, bytes: 0, doneCount: 0, doneBytes: 0, rawCount: 0, rawBytes: 0 };
+    for (const s of PA.store.songs()) {
+      for (const l of s.lessons || []) {
+        if (!l.audioKey) continue;
+        let size = 0;
+        try {
+          const b = await PA.store.getBlob(l.audioKey);
+          if (!b) continue;               // 상태에는 있는데 파일이 없으면 세지 않는다
+          size = b.size;
+        } catch (e) { continue; }
+        out.count++; out.bytes += size;
+        if ((l.transcript || '').trim()) { out.doneCount++; out.doneBytes += size; }
+        else { out.rawCount++; out.rawBytes += size; }
+      }
+    }
+    return out;
+  }
+
   function storageSection() {
     const host = el('div');
     host.appendChild(el('div', { class: 'section-title', style: { marginTop: 0 } }, [
@@ -451,6 +478,30 @@ window.PA = window.PA || {};
       ];
       box.appendChild(el('div', { class: 'row wrap', style: { gap: '6px', marginTop: '10px' } },
         rows.map(([k, v]) => el('span', { class: 'badge', text: `${k}: ${v}` }))));
+
+      /* 레슨 오디오는 한 시간짜리라 저장 공간을 가장 빨리 먹는다.
+         전사를 끝낸 것은 지워도 분석 결과가 남으므로, 그 몫을 따로 보여
+         준다. 총 사용량만 보여 주면 무엇을 지워야 할지 알 수 없다. */
+      const usage = await lessonAudioUsage();
+      if (usage.count) {
+        const line = el('div', { style: { marginTop: '12px' } }, [
+          el('div', { class: 'row' }, [
+            el('span', { class: 'tiny muted', text: `레슨 원본 ${usage.count}개` }),
+            el('span', { class: 'spacer' }),
+            el('span', { class: 'tiny mono', text: S.fmtBytes(usage.bytes) }),
+          ]),
+        ]);
+        if (usage.doneCount) {
+          line.appendChild(el('p', { class: 'tiny faint', style: { marginTop: '4px', lineHeight: '1.6' },
+            text: `이 가운데 ${usage.doneCount}개(${S.fmtBytes(usage.doneBytes)})는 전사를 끝냈습니다. `
+                + '레슨을 열어 원본을 지우면 분석은 남고 용량만 돌아옵니다.' }));
+        }
+        if (usage.rawCount) {
+          line.appendChild(el('p', { class: 'tiny warn', style: { marginTop: '4px', lineHeight: '1.6' },
+            text: `${usage.rawCount}개는 아직 전사 전입니다 — 지우면 되돌릴 수 없습니다.` }));
+        }
+        box.appendChild(line);
+      }
 
       // iOS는 storage.persist()가 없어 홈 화면 추가가 유일한 방어책이다
       if (S.isIOS() && !S.isStandalone()) {

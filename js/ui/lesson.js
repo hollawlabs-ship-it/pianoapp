@@ -20,6 +20,12 @@ window.PA = window.PA || {};
     root.appendChild(el('div', { class: 'section-title' }, [
       el('span', { text: '레슨 기록' }), el('span', { class: 'rule' }),
       PA.store.isReadOnly() ? null
+        /* 레슨장에서 제일 급한 건 녹음이다. 전사는 끝나고 붙여넣으면 된다. */
+        : el('button', {
+            class: 'btn sm', html: icon('mic', 15) + '<span>녹음</span>',
+            onclick: () => openLessonRecorder(song, null, () => render(root)),
+          }),
+      PA.store.isReadOnly() ? null
         : el('button', { class: 'btn sm accent', html: icon('plus', 15) + '<span>레슨</span>', onclick: () => openLessonEditor(song, null) }),
     ]));
 
@@ -27,7 +33,7 @@ window.PA = window.PA || {};
       root.appendChild(emptyEl('notebook', '레슨 기록이 없습니다',
         PA.store.isReadOnly()
           ? '주 기기에서 레슨을 기록하면 여기에 나타납니다.'
-          : '클로바노트 전사를 붙여넣으면 지적사항과 하루별 스케줄이 만들어집니다.'));
+          : '레슨장에서 「녹음」을 눌러 담고, 클로바노트로 전사한 뒤 텍스트를 붙여넣으면 지적사항과 하루별 스케줄이 만들어집니다.'));
       return;
     }
     const list = el('div', { class: 'stack' });
@@ -176,7 +182,13 @@ window.PA = window.PA || {};
     ]));
 
     if (!a) {
-      wrap.appendChild(emptyEl('sparkles', '아직 분석하지 않았습니다', '전사를 넣고 분석을 실행하세요.'));
+      /* 녹음 직후가 바로 이 상태다. 원본 오디오를 맨 위에 둔다 —
+         지금 필요한 건 분석이 아니라 전사로 넘기는 일이다. */
+      wrap.appendChild(lessonAudioBlock(song, lesson, refresh));
+      wrap.appendChild(emptyEl('sparkles', '아직 분석하지 않았습니다',
+        lesson.audioKey && !lesson.transcript
+          ? '위 녹음을 클로바노트로 보내 전사한 뒤, 그 텍스트를 붙여넣으세요.'
+          : '전사를 넣고 분석을 실행하세요.'));
       if (!ro) wrap.appendChild(analyzeButton(song, lesson, refresh));
       wrap.appendChild(transcriptBlock(lesson));
       return wrap;
@@ -276,6 +288,7 @@ window.PA = window.PA || {};
     }
 
     if (!ro) wrap.appendChild(analyzeButton(song, lesson, refresh, true));
+    wrap.appendChild(lessonAudioBlock(song, lesson, refresh));
     wrap.appendChild(transcriptBlock(lesson));
     return wrap;
   }
@@ -320,6 +333,229 @@ window.PA = window.PA || {};
       }
     });
     return btn;
+  }
+
+
+  /* ---------------- 레슨 원본 오디오 ---------------- */
+  /* 흐름: 앱에서 녹음하거나 파일을 붙임 → 클로바노트로 넘겨 전사 →
+     전사 텍스트를 붙여넣어 분석. Claude API는 오디오를 받지 않으므로
+     음성→텍스트 단계는 반드시 바깥을 거친다. */
+
+  const fmtDur = (sec) => {
+    const s = Math.max(0, Math.round(sec || 0));
+    const m = Math.floor(s / 60);
+    return m >= 60
+      ? `${Math.floor(m / 60)}시간 ${m % 60}분`
+      : m > 0 ? `${m}분 ${String(s % 60).padStart(2, '0')}초` : `${s}초`;
+  };
+
+  function lessonAudioBlock(song, lesson, refresh) {
+    const ro = PA.store.isReadOnly();
+    if (!lesson.audioKey) return ro ? el('div') : audioAddRow(song, lesson, refresh);
+
+    const wrap = el('div', { class: 'card', style: { background: 'var(--surface-2)', marginTop: '4px' } });
+    wrap.appendChild(el('div', { class: 'row', style: { gap: '8px' } }, [
+      el('span', { class: 'small', text: '레슨 원본' }),
+      el('span', { class: 'spacer' }),
+      el('span', { class: 'tiny faint', text: fmtDur(lesson.audioDuration) + (lesson.audioSource === 'file' ? ' · 첨부' : ' · 앱 녹음') }),
+    ]));
+
+    const audio = el('audio', { controls: true, style: { width: '100%', marginTop: '8px' } });
+    PA.store.getBlob(lesson.audioKey).then((b) => {
+      if (!b) { audio.replaceWith(el('p', { class: 'tiny warn', text: '오디오 파일을 찾을 수 없습니다.' })); return; }
+      audio.src = URL.createObjectURL(b);
+      audio.addEventListener('loadedmetadata', () => {
+        /* 조각을 이어붙인 파일은 컨테이너에 길이가 비어 있을 수 있다.
+           그럴 때는 녹음하며 재어 둔 시간을 그대로 쓴다. */
+        if (isFinite(audio.duration) && audio.duration > 0 && !lesson.audioDuration) {
+          PA.store.updateLesson(song.id, lesson.id, { audioDuration: audio.duration });
+        }
+      });
+    });
+    wrap.appendChild(audio);
+
+    if (!ro) {
+      const toClova = el('button', {
+        class: 'btn sm accent', html: icon('upload', 15) + '<span>클로바노트로 보내기</span>',
+        onclick: async () => {
+          const blob = await PA.store.getBlob(lesson.audioKey);
+          if (!blob) { toast('오디오 파일을 찾을 수 없습니다.', 'warn'); return; }
+          const name = `레슨 ${lesson.date}${lesson.teacher ? ' ' + lesson.teacher : ''}`;
+          const r = await PA.lessonrec.shareForTranscript(blob, name);
+          if (r === 'unsupported') {
+            /* 공유 시트가 없는 환경(데스크톱 등)에서는 파일로 내려준다. */
+            PA.lessonrec.download(blob, name);
+            toast('파일을 내려받았습니다. 클로바노트에 올려 전사하세요.');
+          } else if (r === 'shared') {
+            toast('전사가 끝나면 텍스트를 복사해 붙여넣으세요.');
+          }
+        },
+      });
+      const del = el('button', {
+        class: 'btn sm ghost', html: icon('trash', 15),
+        onclick: async () => {
+          const ok = await PA.sheets.confirm({
+            title: '원본 오디오 삭제',
+            message: lesson.transcript
+              ? '전사와 분석은 그대로 남고 오디오만 지웁니다. 용량을 돌려받습니다.'
+              : '아직 전사를 붙여넣지 않았습니다. 지우면 이 레슨은 되돌릴 수 없습니다.',
+            danger: true, confirmLabel: '삭제',
+          });
+          if (!ok) return;
+          await PA.store.removeLessonAudio(song.id, lesson.id);
+          refresh();
+        },
+      });
+      del.setAttribute('aria-label', '원본 오디오 삭제');
+      wrap.appendChild(el('div', { class: 'row', style: { gap: '8px', marginTop: '10px' } }, [toClova, el('span', { class: 'spacer' }), del]));
+      if (!lesson.transcript) {
+        wrap.appendChild(el('p', { class: 'tiny faint', style: { marginTop: '8px' },
+          text: '클로바노트에서 전사한 뒤 텍스트를 이 레슨에 붙여넣으면 분석이 돌아갑니다.' }));
+      }
+    }
+    return wrap;
+  }
+
+  function audioAddRow(song, lesson, refresh) {
+    const recBtn = el('button', {
+      class: 'btn sm', html: icon('mic', 15) + '<span>레슨 녹음</span>',
+      onclick: () => openLessonRecorder(song, lesson, refresh),
+    });
+    const file = el('input', { type: 'file', accept: 'audio/*', style: { display: 'none' } });
+    file.addEventListener('change', async () => {
+      const f = file.files && file.files[0];
+      if (!f) return;
+      toast('저장 중…');
+      await PA.store.setLessonAudio(song.id, lesson.id, f, { source: 'file', mime: f.type });
+      refresh();
+    });
+    const upBtn = el('button', {
+      class: 'btn sm ghost', html: icon('upload', 15) + '<span>파일 첨부</span>',
+      onclick: () => file.click(),
+    });
+    return el('div', { class: 'row', style: { gap: '8px', marginTop: '4px' } }, [recBtn, upBtn, file]);
+  }
+
+  /* ---------------- 레슨 녹음 ---------------- */
+  function openLessonRecorder(song, lesson, onDone) {
+    const rec = PA.lessonrec.create();
+    let running = false;
+
+    const time = el('div', {
+      style: { fontSize: '34px', fontWeight: '600', fontVariantNumeric: 'tabular-nums', letterSpacing: '-.02em' },
+      text: '0:00',
+    });
+    const meterFill = el('div', { style: { height: '100%', width: '0%', background: 'var(--ink)', transition: 'width .1s linear' } });
+    const meter = el('div', { style: { height: '4px', width: '100%', background: 'var(--paper-2)', borderRadius: '2px', overflow: 'hidden' } }, [meterFill]);
+    const note = el('p', { class: 'tiny faint', style: { lineHeight: '1.6' },
+      text: '화면을 끄거나 다른 앱으로 넘어가면 iOS가 녹음을 멈춥니다. 그때까지 녹음된 부분은 5초 단위로 저장돼 남습니다.' });
+
+    rec.onTick((sec) => {
+      const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+      time.textContent = `${m}:${String(s).padStart(2, '0')}`;
+    });
+    rec.onLevel((rms) => { meterFill.style.width = Math.min(100, rms * 320) + '%'; });
+    rec.onInterrupt(() => {
+      note.textContent = '화면이 꺼져 녹음이 멈췄을 수 있습니다. 앱으로 돌아와 정지를 누르면 그때까지 녹음된 부분이 저장됩니다.';
+      note.className = 'tiny warn';
+    });
+
+    /* 시작·정지 버튼은 시트의 actions가 아니라 body 안에 둔다.
+       actions로 만든 버튼은 라벨을 바꿀 수 없어 한 버튼으로 토글할 수 없다. */
+    const mainBtn = el('button', { class: 'btn accent block', html: icon('mic', 17) + '<span>녹음 시작</span>' });
+    const body = el('div', { class: 'stack', style: { gap: '14px', alignItems: 'center', textAlign: 'center' } },
+      [time, meter, note, mainBtn]);
+
+    const sheet = PA.sheets.open({
+      title: '레슨 녹음',
+      body,
+      actions: [
+        {
+          label: '닫기', kind: 'ghost',
+          onClick: async (a) => {
+            if (running) {
+              const ok = await PA.sheets.confirm({
+                title: '녹음 취소', message: '지금까지 녹음된 내용을 버립니다.',
+                danger: true, confirmLabel: '버리기', cancelLabel: '계속 녹음',
+              });
+              if (!ok) return;
+              await rec.cancel();
+            }
+            a.close();
+          },
+        },
+      ],
+    });
+
+    mainBtn.addEventListener('click', async () => {
+      if (!running) {
+        try {
+          await rec.start(song.id, lesson ? lesson.id : null);
+          running = true;
+          mainBtn.innerHTML = icon('square', 17) + '<span>정지하고 저장</span>';
+          mainBtn.className = 'btn block';
+          note.textContent = '녹음 중입니다. 이 화면을 켜 둔 채로 두세요.';
+          note.className = 'tiny faint';
+        } catch (e) {
+          toast(e.name === 'NotAllowedError' ? '마이크 권한이 필요합니다.' : e.message, 'warn');
+        }
+        return;
+      }
+      mainBtn.disabled = true;
+      const res = await rec.stop();
+      running = false;
+      sheet.close();
+      if (!res || !res.blob || !res.blob.size) { toast('녹음된 내용이 없습니다.', 'warn'); return; }
+      await saveLessonAudio(song, lesson, res, onDone);
+    });
+
+    return sheet;
+  }
+
+  /** 녹음 결과를 레슨에 붙인다. 레슨이 없으면 새로 만든다. */
+  async function saveLessonAudio(song, lesson, res, onDone) {
+    let target = lesson;
+    if (!target) {
+      target = PA.store.addLesson(song.id, { date: U.todayKey(), transcript: '' });
+      if (!target) return;
+    }
+    await PA.store.setLessonAudio(song.id, target.id, res.blob, {
+      source: 'mic', duration: res.duration, mime: res.mime,
+    });
+    toast(`${fmtDur(res.duration)} 녹음을 저장했습니다.`);
+    onDone && onDone();
+
+    /* 레슨 직후가 전사를 잊지 않고 처리할 가능성이 가장 높다. */
+    const go = await PA.sheets.confirm({
+      title: '지금 전사할까요?',
+      message: '클로바노트로 파일을 넘깁니다. 전사가 끝나면 텍스트를 복사해 이 레슨에 붙여넣으세요.',
+      confirmLabel: '클로바노트로 보내기', cancelLabel: '나중에',
+    });
+    if (!go) return;
+    const name = `레슨 ${target.date}`;
+    const r = await PA.lessonrec.shareForTranscript(res.blob, name);
+    if (r === 'unsupported') { PA.lessonrec.download(res.blob, name); toast('파일을 내려받았습니다.'); }
+  }
+
+  /** 끊긴 녹음이 남아 있으면 복구를 제안한다. 앱을 열 때 부른다. */
+  async function checkPendingRecording() {
+    if (PA.store.isReadOnly()) return;
+    const p = PA.lessonrec.pending();
+    if (!p) return;
+    const song = PA.store.songById(p.songId) || PA.store.activeSong();
+    if (!song) { await PA.lessonrec.dropPending(); return; }
+    const ok = await PA.sheets.confirm({
+      title: '중단된 레슨 녹음',
+      message: `약 ${fmtDur(p.seconds)} 분량이 저장된 채 남아 있습니다. 녹음이 끊긴 것 같습니다. 복구할까요?`,
+      confirmLabel: '복구', cancelLabel: '버리기',
+    });
+    if (!ok) { await PA.lessonrec.dropPending(); return; }
+    const res = await PA.lessonrec.recover();
+    if (!res || !res.blob || !res.blob.size) { toast('복구할 내용이 없습니다.', 'warn'); return; }
+    const lesson = p.lessonId ? (song.lessons || []).find((x) => x.id === p.lessonId) : null;
+    await saveLessonAudio(song, lesson, res, () => {
+      if (PA.views.app && PA.views.app.refresh) PA.views.app.refresh();
+    });
   }
 
   /* ---------------- 레슨 입력/수정 ---------------- */
@@ -378,7 +614,7 @@ window.PA = window.PA || {};
         onClick: async (a) => {
           const ok = await PA.sheets.confirm({ title: '레슨 삭제', message: '지적사항과 스케줄도 함께 지워집니다.', danger: true, confirmLabel: '삭제' });
           if (!ok) return;
-          PA.store.removeLesson(song.id, lesson.id);
+          await PA.store.removeLesson(song.id, lesson.id);
           a.close();
           onDone && onDone();
         },
@@ -389,5 +625,5 @@ window.PA = window.PA || {};
   }
 
   PA.views = PA.views || {};
-  PA.views.lesson = { render, openLessonEditor };
+  PA.views.lesson = { render, openLessonEditor, openLessonRecorder, checkPendingRecording };
 })(window.PA);
