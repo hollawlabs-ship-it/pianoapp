@@ -182,7 +182,12 @@ window.PA = window.PA || {};
           type: 'object',
           properties: {
             text: { type: 'string', description: '지적 내용을 한 문장으로' },
-            sectionId: { type: ['string', 'null'], description: '주어진 구간 목록의 id. 특정할 수 없으면 null' },
+            /* 구조화 출력은 {"type":["string","null"]} 유니온을 받지 않는다.
+               nullable은 anyOf로 적어야 하고, 아니면 400으로 거절당한다. */
+            sectionId: {
+              anyOf: [{ type: 'string' }, { type: 'null' }],
+              description: '주어진 구간 목록의 id. 특정할 수 없으면 null',
+            },
             dimension: { type: 'string', enum: ['dynamics', 'legato', 'phrasing', 'pedal', 'tone'] },
             severity: { type: 'string', enum: ['high', 'mid', 'low'] },
           },
