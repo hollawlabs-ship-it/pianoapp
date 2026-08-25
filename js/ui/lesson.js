@@ -415,8 +415,7 @@ window.PA = window.PA || {};
       del.setAttribute('aria-label', '원본 오디오 삭제');
       wrap.appendChild(el('div', { class: 'row', style: { gap: '8px', marginTop: '10px' } }, [toClova, el('span', { class: 'spacer' }), del]));
       if (!lesson.transcript) {
-        wrap.appendChild(el('p', { class: 'tiny faint', style: { marginTop: '8px' },
-          text: '클로바노트에서 전사한 뒤 텍스트를 이 레슨에 붙여넣으면 분석이 돌아갑니다.' }));
+        wrap.appendChild(pasteRow(song, lesson, refresh));
       }
     }
     return wrap;
@@ -440,6 +439,87 @@ window.PA = window.PA || {};
       onclick: () => file.click(),
     });
     return el('div', { class: 'row', style: { gap: '8px', marginTop: '4px' } }, [recBtn, upBtn, file]);
+  }
+
+  /* 클로바노트에서 복사해 온 전사를 한 번에 받아 넣는다.
+     클로바노트에 API가 없고 iOS는 공유 대상도 지원하지 않아, 앱이 가져오는
+     방향밖에 없다. 그렇다면 최소한 손품은 한 번으로 줄인다. */
+  function pasteRow(song, lesson, refresh) {
+    const wrap = el('div', { style: { marginTop: '10px' } });
+
+    const btn = el('button', {
+      class: 'btn sm block', html: icon('download', 15) + '<span>클로바노트에서 붙여넣기</span>',
+      onclick: async (e) => {
+        const b = e.currentTarget;
+        b.disabled = true;
+        try {
+          const text = await PA.intake.readText();
+          if (!PA.intake.looksLikeTranscript(text)) {
+            toast('복사된 글이 너무 짧습니다. 전사 전체를 복사했는지 확인하세요.', 'warn');
+            return;
+          }
+          await applyTranscript(song, lesson, text, refresh);
+        } catch (err) {
+          toast(err.message, 'warn');
+        } finally {
+          b.disabled = false;
+        }
+      },
+    });
+
+    wrap.appendChild(btn);
+    wrap.appendChild(el('p', { class: 'tiny faint', style: { marginTop: '6px', lineHeight: '1.6' },
+      text: PA.intake.canRead()
+        ? '클로바노트에서 전사를 전체 복사한 뒤 누르세요. 붙여넣고 바로 분석까지 진행합니다.'
+        : '클로바노트에서 전사를 복사한 뒤, 「수정」에서 전사 칸에 붙여넣으세요.' }));
+    return wrap;
+  }
+
+  /** 전사를 레슨에 넣고 이어서 분석까지 돌린다. 들어온 경로와 무관하게 같은 처리. */
+  async function applyTranscript(song, lesson, text, refresh) {
+    PA.store.updateLesson(song.id, lesson.id, { transcript: text });
+    refresh && refresh();
+    toast('전사를 넣었습니다. 분석을 시작합니다…');
+    try {
+      const analysis = await PA.analysis.analyzeLesson(text, song);
+      PA.store.updateLesson(song.id, lesson.id, {
+        analysis, analyzedAt: U.todayKey(), analyzedBy: analysis.engine,
+      });
+      toast(`지적 ${analysis.issues.length}건을 찾았습니다.`);
+    } catch (e) {
+      toast(e.message, 'warn');
+    }
+    refresh && refresh();
+  }
+
+  /**
+   * 밖에서 전사가 들어왔을 때 (안드로이드 공유 대상 · iOS 단축어).
+   * 전사를 기다리는 레슨이 있으면 거기에 붙이고, 없으면 새로 만든다.
+   */
+  async function receiveTranscript(text, title) {
+    if (PA.store.isReadOnly()) { toast('보기 전용 기기입니다.', 'warn'); return; }
+    const song = PA.store.activeSong();
+    if (!song) return;
+
+    /* 오디오는 있는데 전사가 비어 있는 레슨이 기다리고 있을 가능성이 가장 높다.
+       가장 최근 것에 붙인다. */
+    const waiting = (song.lessons || []).find((l) => l.audioKey && !(l.transcript || '').trim());
+    let target = waiting;
+
+    if (!target) {
+      const ok = await PA.sheets.confirm({
+        title: '전사를 받았습니다',
+        message: `${text.length}자. 새 레슨으로 만들까요?`,
+        confirmLabel: '새 레슨으로', cancelLabel: '취소',
+      });
+      if (!ok) return;
+      target = PA.store.addLesson(song.id, { date: U.todayKey(), teacher: (title || '').trim(), transcript: '' });
+      if (!target) return;
+    }
+    const sheet = openLessonDetail(song, target);
+    await applyTranscript(song, target, text, () => {
+      if (sheet && sheet.setBody) sheet.setBody(detailBody(song, target, () => {}));
+    });
   }
 
   /* ---------------- 녹음 파일 가져오기 ---------------- */
@@ -708,5 +788,5 @@ window.PA = window.PA || {};
   }
 
   PA.views = PA.views || {};
-  PA.views.lesson = { render, openLessonEditor, openLessonRecorder, openLessonImport, openLessonDetail, checkPendingRecording };
+  PA.views.lesson = { render, openLessonEditor, openLessonRecorder, openLessonImport, openLessonDetail, checkPendingRecording, receiveTranscript };
 })(window.PA);

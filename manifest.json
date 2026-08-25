@@ -13,6 +13,16 @@
   "background_color": "#EDEDED",
   "theme_color": "#EDEDED",
   "categories": ["education", "music", "productivity"],
+  "_comment_share_target": "다른 앱의 '공유'에서 이 앱을 고를 수 있게 한다. 안드로이드·크롬OS에서만 동작하고 iOS Safari는 아직 지원하지 않는다. 아이폰에서는 붙여넣기 버튼과 단축어로 대신한다.",
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
   "icons": [
     {
       "src": "assets/icon-192.png",

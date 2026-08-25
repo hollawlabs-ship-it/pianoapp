@@ -59,6 +59,16 @@ window.PA = window.PA || {};
     });
 
     refresh();
+
+    /* 밖에서 전사가 실려 왔으면 (안드로이드 공유 대상 · iOS 단축어)
+       환영 시트보다 먼저 처리한다 — 사용자가 방금 보낸 것이라 기다리고 있다. */
+    const incoming = PA.intake.takeIncoming();
+    if (incoming && PA.intake.looksLikeTranscript(incoming.text)) {
+      go('lesson');
+      setTimeout(() => PA.views.lesson.receiveTranscript(incoming.text, incoming.title), 250);
+      return;
+    }
+
     setTimeout(maybeWelcome, 400);
     /* 지난번 레슨 녹음이 끊긴 채 남아 있으면 복구를 제안한다.
        환영 시트와 겹치지 않도록 뒤에 세운다. */
