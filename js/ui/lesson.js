@@ -522,10 +522,166 @@ window.PA = window.PA || {};
     });
   }
 
+
   /* ---------------- 녹음 파일 가져오기 ---------------- */
-  /* 다른 앱으로 녹음해 둔 레슨을 통째로 들여온다.
-     앱 내 녹음과 도착지는 같다 — 레슨 하나에 원본 오디오가 붙은 상태. */
+  /* 입구를 둘로 나눈다. 헤더에 버튼을 넷 두면 아이폰 폭에서 넘친다. */
   function openLessonImport(song, onDone) {
+    const choice = (iconName, title, desc, fn) => {
+      const b = el('button', {
+        class: 'card tap',
+        style: { width: '100%', textAlign: 'left', display: 'block', border: '1px solid var(--line-2)' },
+      }, [
+        el('div', { class: 'row', style: { gap: '10px' } }, [
+          el('span', { html: icon(iconName, 18) }),
+          el('div', { style: { minWidth: 0, flex: '1' } }, [
+            el('div', { class: 'small', style: { fontWeight: 650 }, text: title }),
+            el('div', { class: 'tiny faint', style: { marginTop: '2px', lineHeight: '1.5' }, text: desc }),
+          ]),
+          el('span', { class: 'tiny faint', html: icon('chevronRight', 15) }),
+        ]),
+      ]);
+      b.addEventListener('click', fn);
+      return b;
+    };
+
+    const sheet = PA.sheets.open({
+      title: '녹음 파일 가져오기',
+      body: el('div', { class: 'stack', style: { gap: '10px' } }, [
+        choice('upload', '이 기기에서 고르기', '음성 메모, 내려받은 파일',
+          () => { sheet.close(); openImportLocal(song, onDone); }),
+        choice('layers', '드롭박스에서 불러오기', '앱 폴더에 올려 둔 레슨 녹음',
+          () => { sheet.close(); openImportDropbox(song, onDone); }),
+      ]),
+      actions: [{ label: '닫기', kind: 'ghost', onClick: (a) => a.close() }],
+    });
+    return sheet;
+  }
+
+  /* 드롭박스 앱 폴더에서 고른다.
+     앱 폴더 방식이라 드롭박스 전체가 아니라 `앱/<앱이름>` 안만 보인다.
+     레슨 녹음을 그 폴더에 올려 두면 여기에 나타난다. */
+  const AUDIO_EXT = /\.(m4a|mp3|wav|aac|ogg|oga|webm|mp4|flac|caf|amr|3gp)$/i;
+  /* 앱이 스스로 쓴 백업은 목록에서 뺀다 — 이미 앱 안에 있는 것들이다. */
+  const APP_DIRS = /^(recordings|lessons|reports)\//;
+
+  function openImportDropbox(song, onDone) {
+    const prov = PA.providers.dropbox;
+    const body = el('div', { class: 'stack', style: { gap: '10px' } });
+
+    const sheet = PA.sheets.open({
+      title: '드롭박스에서 불러오기',
+      body,
+      actions: [{ label: '닫기', kind: 'ghost', onClick: (a) => a.close() }],
+    });
+
+    if (!prov.isConnected()) {
+      body.appendChild(el('p', { class: 'small muted', style: { lineHeight: '1.7' },
+        text: '드롭박스가 연결돼 있지 않습니다. 설정 → 저장 드라이브에서 먼저 연결하세요.' }));
+      body.appendChild(el('button', {
+        class: 'btn block', html: icon('settings', 16) + '<span>설정 열기</span>',
+        onclick: () => { sheet.close(); PA.views.app.openSettings(); },
+      }));
+      return sheet;
+    }
+
+    body.appendChild(el('div', { class: 'row', style: { gap: '8px' } }, [
+      el('span', { class: 'thinking', html: '<i></i><i></i><i></i>' }),
+      el('span', { class: 'small muted', text: '목록을 읽는 중…' }),
+    ]));
+
+    (async () => {
+      let files;
+      try {
+        files = await prov.listFiles('');
+      } catch (e) {
+        clear(body);
+        body.appendChild(el('p', { class: 'small warn', style: { lineHeight: '1.7' }, text: e.message }));
+        return;
+      }
+
+      const audio = files
+        .filter((f) => AUDIO_EXT.test(f.path) && !APP_DIRS.test(f.path))
+        .sort((a, b) => String(b.modified).localeCompare(String(a.modified)));
+
+      clear(body);
+
+      if (!audio.length) {
+        body.appendChild(el('p', { class: 'small muted', style: { lineHeight: '1.7' },
+          text: '앱 폴더에서 오디오 파일을 찾지 못했습니다.' }));
+        body.appendChild(el('p', { class: 'tiny faint', style: { lineHeight: '1.7' },
+          text: '드롭박스 앱 폴더(앱/<앱이름>)에 올린 파일만 보입니다. '
+              + '다른 위치에 올리고 계시다면 그 폴더로 옮기거나, 「이 기기에서 고르기」를 쓰세요.' }));
+        return;
+      }
+
+      body.appendChild(el('p', { class: 'tiny faint', style: { lineHeight: '1.6' },
+        text: `${audio.length}개. 누르면 내려받아 새 레슨으로 만듭니다.` }));
+
+      const list = el('div', { class: 'card flush' });
+      audio.slice(0, 60).forEach((f) => {
+        const name = f.path.split('/').pop();
+        const when = f.modified ? String(f.modified).slice(0, 10) : '';
+        const row = el('button', {
+          class: 'item', style: { width: '100%', textAlign: 'left', background: 'none', border: 'none' },
+        }, [
+          el('div', { class: 'body' }, [
+            el('div', { class: 'small', style: { fontWeight: 600, whiteSpace: 'normal', wordBreak: 'break-all' }, text: name }),
+            el('div', { class: 'tiny faint', style: { marginTop: '3px' },
+              text: [when, PA.storage.fmtBytes(f.size), f.path.includes('/') ? f.path.replace(/\/[^/]*$/, '') : '루트'].filter(Boolean).join(' · ') }),
+          ]),
+          el('span', { class: 'tiny faint', html: icon('download', 15) }),
+        ]);
+        row.addEventListener('click', async () => {
+          row.disabled = true;
+          await pullFromDropbox(song, prov, f, sheet, onDone);
+        });
+        list.appendChild(row);
+      });
+      body.appendChild(list);
+      if (audio.length > 60) {
+        body.appendChild(el('p', { class: 'tiny faint', text: `최근 60개만 보입니다 (전체 ${audio.length}개).` }));
+      }
+    })();
+
+    return sheet;
+  }
+
+  /** 드롭박스에서 파일 하나를 내려받아 새 레슨으로 만든다. */
+  async function pullFromDropbox(song, prov, f, sheet, onDone) {
+    const name = f.path.split('/').pop();
+    toast(`${name} 내려받는 중…`);
+    let blob;
+    try {
+      blob = await prov.getFile(f.path);
+    } catch (e) {
+      toast('내려받지 못했습니다: ' + e.message, 'warn');
+      return;
+    }
+    if (!blob || !blob.size) { toast('파일이 비어 있습니다.', 'warn'); return; }
+
+    /* 날짜는 파일명에서 먼저 찾고, 없으면 드롭박스의 수정 시각을 쓴다.
+       레슨 날짜가 틀리면 추이 그래프가 어긋나므로 되도록 맞춰 둔다. */
+    const m = name.match(/(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})/);
+    let date = U.todayKey();
+    if (m && !isNaN(new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00`).getTime())) {
+      date = `${m[1]}-${m[2]}-${m[3]}`;
+    } else if (f.modified) {
+      date = String(f.modified).slice(0, 10);
+    }
+
+    const lesson = PA.store.addLesson(song.id, { date, teacher: '', transcript: '' });
+    if (!lesson) return;
+    await PA.store.setLessonAudio(song.id, lesson.id, blob, {
+      source: 'file', mime: blob.type || 'audio/mp4', duration: 0,
+    });
+    sheet.close();
+    toast('가져왔습니다.');
+    onDone && onDone();
+    openLessonDetail(song, lesson);
+  }
+
+  /* 이 기기의 파일에서 고른다. */
+  function openImportLocal(song, onDone) {
     let picked = null;
 
     const file = el('input', { class: 'input', type: 'file', accept: 'audio/*,video/*', style: { padding: '10px' } });
