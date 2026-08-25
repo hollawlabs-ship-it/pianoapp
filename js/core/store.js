@@ -9,6 +9,7 @@ window.PA = window.PA || {};
 
   const LS_KEY = 'pianoapp.v6.state';
   const KEY_STORE = 'pianoapp.apiKey';
+  const STT_KEY_STORE = 'pianoapp.sttKey';   // 음성인식(Groq) 키
   const DB_NAME = 'pianoapp-media';
   const DB_STORE = 'blobs';
   const SCHEMA = 6;
@@ -17,30 +18,38 @@ window.PA = window.PA || {};
      키는 상태 JSON 바깥에 따로 둔다. 이유가 둘 있다.
       1) 내보내기(JSON)에 키가 섞여 파일로 새어 나가는 것을 막는다.
       2) 공개 URL에서는 "탭을 닫으면 사라지는" 세션 저장이 기본이어야 한다.
-     '이 기기에 기억'을 켠 경우에만 localStorage로 옮긴다. */
-  const keystore = {
-    get() {
-      try {
-        return (localStorage.getItem(KEY_STORE) || sessionStorage.getItem(KEY_STORE) || '').trim();
-      } catch (e) { return ''; }
-    },
-    set(value, remember) {
-      const v = (value || '').trim();
-      try {
-        sessionStorage.removeItem(KEY_STORE);
-        localStorage.removeItem(KEY_STORE);
-        if (!v) return;
-        (remember ? localStorage : sessionStorage).setItem(KEY_STORE, v);
-      } catch (e) { /* 저장 불가(시크릿 모드 등)여도 앱은 계속 돈다 */ }
-    },
-    clear() {
-      try { sessionStorage.removeItem(KEY_STORE); localStorage.removeItem(KEY_STORE); } catch (e) {}
-    },
-    /** 이 키가 이 기기에 영구 저장돼 있는가 */
-    isRemembered() {
-      try { return !!localStorage.getItem(KEY_STORE); } catch (e) { return false; }
-    },
-  };
+     '이 기기에 기억'을 켠 경우에만 localStorage로 옮긴다.
+
+     키가 둘 이상이라 팩토리로 만든다. 새 키를 넣을 때 이 규칙을
+     다시 구현하다 한 군데를 빠뜨리는 일이 없게 하려는 것이다. */
+  function makeKeystore(storeKey) {
+    return {
+      get() {
+        try {
+          return (localStorage.getItem(storeKey) || sessionStorage.getItem(storeKey) || '').trim();
+        } catch (e) { return ''; }
+      },
+      set(value, remember) {
+        const v = (value || '').trim();
+        try {
+          sessionStorage.removeItem(storeKey);
+          localStorage.removeItem(storeKey);
+          if (!v) return;
+          (remember ? localStorage : sessionStorage).setItem(storeKey, v);
+        } catch (e) { /* 저장 불가(시크릿 모드 등)여도 앱은 계속 돈다 */ }
+      },
+      clear() {
+        try { sessionStorage.removeItem(storeKey); localStorage.removeItem(storeKey); } catch (e) {}
+      },
+      /** 이 키가 이 기기에 영구 저장돼 있는가 */
+      isRemembered() {
+        try { return !!localStorage.getItem(storeKey); } catch (e) { return false; }
+      },
+    };
+  }
+
+  const keystore = makeKeystore(KEY_STORE);
+  const sttKeystore = makeKeystore(STT_KEY_STORE);
 
   /* ---------- 표현 5차원 ---------- */
   const DIMENSIONS = [
@@ -134,6 +143,7 @@ window.PA = window.PA || {};
       settings: {
         // apiKey는 여기 두지 않는다 — keystore 참고
         rememberKey: false,
+        rememberSttKey: false,
         model: 'claude-opus-5',
         aiEnabled: false,
         metronomeSound: 'wood',
@@ -544,6 +554,23 @@ window.PA = window.PA || {};
     emit('settings');
   }
 
+  /* 음성인식(Groq) 키. Anthropic 키와 같은 규칙을 따르되 저장 자리만 다르다.
+     '기억' 여부도 따로 둔다 — 두 키의 성격이 달라 한쪽만 남기고 싶을 수 있다. */
+  const getSttKey = () => sttKeystore.get();
+
+  function setSttKey(value, remember) {
+    const keep = remember === undefined ? state.settings.rememberSttKey : !!remember;
+    sttKeystore.set(value, keep);
+    state.settings.rememberSttKey = keep && !!(value || '').trim();
+    emit('settings');
+  }
+
+  function clearSttKey() {
+    sttKeystore.clear();
+    state.settings.rememberSttKey = false;
+    emit('settings');
+  }
+
   /* ---------- 스냅샷(추이 그래프용) ---------- */
   function pushSnapshot(songId, snap) {
     const s = songById(songId);
@@ -616,6 +643,7 @@ window.PA = window.PA || {};
     addRoleModel, updateRoleModel, setPrimaryRoleModel, removeRoleModel,
     setSettings, pushSnapshot, exportJSON, importJSON,
     getApiKey, setApiKey, setRememberKey, clearApiKey, keyIsRemembered: keystore.isRemembered,
+    getSttKey, setSttKey, clearSttKey, sttKeyIsRemembered: sttKeystore.isRemembered,
     getBlob, putBlob, delBlob, listBlobKeys,
   });
 })(window.PA);

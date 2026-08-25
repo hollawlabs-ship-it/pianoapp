@@ -447,6 +447,11 @@ window.PA = window.PA || {};
   function pasteRow(song, lesson, refresh) {
     const wrap = el('div', { style: { marginTop: '10px' } });
 
+    /* 자동 전사가 있으면 그쪽을 먼저 권한다. 다만 클로바노트 경로를 없애지는
+       않는다 — 한국어 음악 용어는 클로바노트가 더 나을 수 있고, 그건 몇 번
+       써 봐야 아는 일이다. 두 길을 다 열어두고 사람이 고르게 한다. */
+    if (lesson.audioKey) wrap.appendChild(autoTranscribeRow(song, lesson, refresh));
+
     const btn = el('button', {
       class: 'btn sm block', html: icon('download', 15) + '<span>클로바노트에서 붙여넣기</span>',
       onclick: async (e) => {
@@ -472,6 +477,45 @@ window.PA = window.PA || {};
       text: PA.intake.canRead()
         ? '클로바노트에서 전사를 전체 복사한 뒤 누르세요. 붙여넣고 바로 분석까지 진행합니다.'
         : '클로바노트에서 전사를 복사한 뒤, 「수정」에서 전사 칸에 붙여넣으세요.' }));
+    return wrap;
+  }
+
+  /** Groq로 오디오를 바로 전사한다. 되면 손이 아예 안 간다. */
+  function autoTranscribeRow(song, lesson, refresh) {
+    const wrap = el('div', { style: { marginBottom: '10px' } });
+
+    if (!PA.stt.available()) {
+      const setup = el('button', {
+        class: 'btn sm block ghost', html: icon('sparkles', 15) + '<span>자동 전사 켜기</span>',
+        onclick: () => PA.views.app.openSettings(),
+      });
+      wrap.appendChild(setup);
+      wrap.appendChild(el('p', { class: 'tiny faint', style: { marginTop: '6px', lineHeight: '1.6' },
+        text: '설정에서 Groq 키를 넣으면 클로바노트를 거치지 않고 앱에서 바로 전사합니다.' }));
+      return wrap;
+    }
+
+    const btn = el('button', {
+      class: 'btn sm accent block', html: icon('sparkles', 15) + '<span>자동 전사</span>',
+      onclick: async (e) => {
+        const b = e.currentTarget;
+        b.disabled = true;
+        b.innerHTML = '<span class="thinking"><i></i><i></i><i></i></span><span>전사하는 중</span>';
+        try {
+          const blob = await PA.store.getBlob(lesson.audioKey);
+          if (!blob) throw new Error('오디오 파일을 찾을 수 없습니다.');
+          const r = await PA.stt.transcribe(blob);
+          await applyTranscript(song, lesson, r.text, refresh);
+        } catch (err) {
+          toast(err.message, 'warn');
+          b.disabled = false;
+          b.innerHTML = icon('sparkles', 15) + '<span>자동 전사</span>';
+        }
+      },
+    });
+    wrap.appendChild(btn);
+    wrap.appendChild(el('p', { class: 'tiny faint', style: { marginTop: '6px', lineHeight: '1.6' },
+      text: '앱에서 바로 전사하고 분석까지 이어집니다. 결과가 아쉬우면 아래 클로바노트 경로를 쓰세요.' }));
     return wrap;
   }
 

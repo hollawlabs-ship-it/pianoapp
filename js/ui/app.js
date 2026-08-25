@@ -254,6 +254,9 @@ window.PA = window.PA || {};
         el('p', { class: 'tiny faint', style: { marginTop: '8px' }, text: `모델: ${s.model || PA.ai.MODEL}` }),
       ]),
 
+      /* 자동 전사 */
+      sttSection(),
+
       /* 연습 */
       el('div', {}, [
         el('div', { class: 'section-title', style: { marginTop: 0 } }, [el('span', { text: '연습' }), el('span', { class: 'rule' })]),
@@ -428,6 +431,85 @@ window.PA = window.PA || {};
   }
 
   /* ---------------- 저장 공간 · 유실 위험 ---------------- */
+  /* 자동 전사(Groq) 설정.
+     Claude API는 오디오를 받지 않아 음성인식 모델이 따로 필요하고,
+     브라우저에서 직접 부를 수 있는 곳이 Groq뿐이라 여기만 붙였다. */
+  function sttSection() {
+    const s = PA.store.get().settings || {};
+
+    const key = el('input', {
+      class: 'input', type: 'password', value: PA.store.getSttKey(),
+      placeholder: 'gsk_...', autocomplete: 'off', spellcheck: false,
+    });
+    const showKey = el('button', {
+      class: 'btn sm ghost', text: '보기',
+      onclick: (e) => {
+        const on = key.type === 'password';
+        key.type = on ? 'text' : 'password';
+        e.currentTarget.textContent = on ? '숨기기' : '보기';
+      },
+    });
+    const status = el('div', { class: 'tiny', style: { marginTop: '6px', minHeight: '16px' } });
+    const remember = el('input', { type: 'checkbox', id: 'rememberSttKey', style: { width: '18px', height: '18px', accentColor: '#0D0D0D' } });
+    remember.checked = !!s.rememberSttKey;
+
+    key.addEventListener('change', () => PA.store.setSttKey(key.value.trim(), remember.checked));
+    remember.addEventListener('change', () => {
+      PA.store.setSttKey(key.value.trim(), remember.checked);
+      toast(remember.checked ? '이 기기에 키를 기억합니다.' : '세션이 끝나면 키를 지웁니다.');
+    });
+
+    const testBtn = el('button', {
+      class: 'btn sm', html: icon('check', 15) + '<span>연결 확인</span>',
+      onclick: async (e) => {
+        PA.store.setSttKey(key.value.trim(), remember.checked);
+        e.currentTarget.disabled = true;
+        status.textContent = '확인 중…';
+        status.style.color = 'var(--muted)';
+        try {
+          await PA.stt.ping();
+          status.textContent = '연결됨 — 레슨에서 「자동 전사」를 쓸 수 있습니다.';
+          status.style.color = 'var(--ok)';
+        } catch (err) {
+          status.textContent = err.message;
+          status.style.color = 'var(--warn)';
+        }
+        e.currentTarget.disabled = false;
+      },
+    });
+
+    return el('div', {}, [
+      el('div', { class: 'section-title', style: { marginTop: 0 } }, [
+        el('span', { text: '자동 전사' }), el('span', { class: 'rule' }),
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { text: 'Groq API 키' }),
+        el('div', { class: 'row', style: { gap: '6px' } }, [key, showKey]),
+        status,
+        el('div', { class: 'row', style: { gap: '6px', marginTop: '4px' } }, [
+          testBtn,
+          el('button', {
+            class: 'btn sm ghost', text: '키 지우기',
+            onclick: () => {
+              key.value = '';
+              PA.store.clearSttKey();
+              remember.checked = false;
+              status.textContent = '';
+              toast('키를 지웠습니다.');
+            },
+          }),
+        ]),
+        el('label', { for: 'rememberSttKey', class: 'row', style: { gap: '8px', marginTop: '8px', cursor: 'pointer' } }, [
+          remember, el('span', { class: 'small', text: '이 기기에 키 기억하기' }),
+        ]),
+      ]),
+      el('p', { class: 'tiny faint', style: { lineHeight: '1.7' }, text:
+        'console.groq.com에서 무료로 발급합니다. 하루 8시간 분량까지 무료라 주 4회 레슨은 한도에 닿지 않습니다. ' +
+        '파일 하나는 25MB까지 — 앱 녹음은 한 시간에 약 14MB입니다. ' +
+        '클로바노트 경로는 그대로 남아 있으니 정확도를 비교해 보고 고르세요.' }),
+    ]);
+  }
+
   /** 레슨 원본 오디오가 차지하는 용량. 전사 여부로 나눠 센다. */
   async function lessonAudioUsage() {
     const out = { count: 0, bytes: 0, doneCount: 0, doneBytes: 0, rawCount: 0, rawBytes: 0 };

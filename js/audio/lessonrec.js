@@ -38,7 +38,15 @@ window.PA = window.PA || {};
     },
   };
 
-  const BITRATE = 64000;   // 말소리 기준. 한 시간에 약 29MB.
+  /* 말소리 기준 32kbps. 한 시간에 약 14MB.
+     64kbps에서 내렸다. 이유가 둘이다.
+       1) 자동 전사(Groq)의 무료 업로드 한도가 25MB다. 64kbps로 한 시간을
+          담으면 29MB라 그 자리에서 막힌다.
+       2) Whisper는 어차피 16kHz 모노로 낮춰 처리한다. 더 준다고 더 잘
+          알아듣지 않는다.
+     사람이 듣기에도 말소리는 이 정도면 충분하고, 저장 공간과 백업 용량이
+     절반으로 줄어든다. */
+  const BITRATE = 32000;
 
   function pickMime() {
     /* iOS Safari는 audio/mp4만 낸다. 안드로이드 크롬은 webm/opus를 낸다.
