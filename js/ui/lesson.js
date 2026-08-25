@@ -26,6 +26,12 @@ window.PA = window.PA || {};
             onclick: () => openLessonRecorder(song, null, () => render(root)),
           }),
       PA.store.isReadOnly() ? null
+        /* 다른 앱으로 찍어 둔 레슨을 들여온다. 지난 녹음을 몰아 넣을 때도 쓴다. */
+        : el('button', {
+            class: 'btn sm', html: icon('upload', 15) + '<span>가져오기</span>',
+            onclick: () => openLessonImport(song, () => render(root)),
+          }),
+      PA.store.isReadOnly() ? null
         : el('button', { class: 'btn sm accent', html: icon('plus', 15) + '<span>레슨</span>', onclick: () => openLessonEditor(song, null) }),
     ]));
 
@@ -436,6 +442,83 @@ window.PA = window.PA || {};
     return el('div', { class: 'row', style: { gap: '8px', marginTop: '4px' } }, [recBtn, upBtn, file]);
   }
 
+  /* ---------------- 녹음 파일 가져오기 ---------------- */
+  /* 다른 앱으로 녹음해 둔 레슨을 통째로 들여온다.
+     앱 내 녹음과 도착지는 같다 — 레슨 하나에 원본 오디오가 붙은 상태. */
+  function openLessonImport(song, onDone) {
+    let picked = null;
+
+    const file = el('input', { class: 'input', type: 'file', accept: 'audio/*,video/*', style: { padding: '10px' } });
+    const summary = el('div', { class: 'tiny faint', text: '아이폰의 음성 메모, 클로바노트에서 내려받은 파일, 녹음기 앱 파일 모두 됩니다.' });
+    const date = el('input', { class: 'input', type: 'date', value: U.todayKey() });
+    const teacher = el('input', { class: 'input', placeholder: '선생님 (선택)' });
+
+    file.addEventListener('change', () => {
+      picked = file.files && file.files[0];
+      if (!picked) { summary.textContent = ''; return; }
+      summary.textContent = `${picked.name} · ${PA.storage.fmtBytes(picked.size)} · 길이 읽는 중…`;
+
+      /* 길이는 메타데이터를 읽어야 안다. 실패해도 가져오기는 막지 않는다 —
+         컨테이너에 길이가 없는 파일도 재생은 된다. */
+      const probe = el('audio');
+      const url = URL.createObjectURL(picked);
+      probe.addEventListener('loadedmetadata', () => {
+        const d = isFinite(probe.duration) ? probe.duration : 0;
+        picked._duration = d;
+        summary.textContent = `${picked.name} · ${PA.storage.fmtBytes(picked.size)}` + (d ? ` · ${fmtDur(d)}` : '');
+        URL.revokeObjectURL(url);
+      });
+      probe.addEventListener('error', () => {
+        summary.textContent = `${picked.name} · ${PA.storage.fmtBytes(picked.size)}`;
+        URL.revokeObjectURL(url);
+      });
+      probe.src = url;
+
+      /* 파일명에 날짜가 들어 있으면 (20260822 / 2026-08-22 / 2026_08_22)
+         그걸 기본값으로 쓴다. 지난 레슨을 몰아서 넣을 때 매번 고치지 않아도 된다. */
+      const m = picked.name.match(/(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})/);
+      if (m) {
+        const cand = `${m[1]}-${m[2]}-${m[3]}`;
+        if (!isNaN(new Date(cand + 'T00:00:00').getTime())) date.value = cand;
+      }
+    });
+
+    const body = el('div', { class: 'stack', style: { gap: '12px' } }, [
+      el('div', { class: 'field' }, [el('label', { text: '녹음 파일' }), file, summary]),
+      el('div', { class: 'grid-2' }, [
+        el('div', { class: 'field' }, [el('label', { text: '레슨 날짜' }), date]),
+        el('div', { class: 'field' }, [el('label', { text: '선생님' }), teacher]),
+      ]),
+      el('p', { class: 'tiny faint', style: { lineHeight: '1.6' },
+        text: '가져온 뒤 「클로바노트로 보내기」로 전사하고, 그 텍스트를 붙여넣으면 분석이 돕니다.' }),
+    ]);
+
+    return PA.sheets.open({
+      title: '녹음 파일 가져오기',
+      body,
+      actions: [{
+        label: '가져오기', kind: 'primary', block: true,
+        onClick: async (a) => {
+          if (!picked) { toast('파일을 고르세요.', 'warn'); return; }
+          a.close();
+          toast('저장 중…');
+          const lesson = PA.store.addLesson(song.id, {
+            date: date.value || U.todayKey(),
+            teacher: teacher.value.trim(),
+            transcript: '',
+          });
+          if (!lesson) return;
+          await PA.store.setLessonAudio(song.id, lesson.id, picked, {
+            source: 'file', duration: picked._duration || 0, mime: picked.type,
+          });
+          toast('가져왔습니다.');
+          onDone && onDone();
+          openLessonDetail(song, lesson);
+        },
+      }],
+    });
+  }
+
   /* ---------------- 레슨 녹음 ---------------- */
   function openLessonRecorder(song, lesson, onDone) {
     const rec = PA.lessonrec.create();
@@ -625,5 +708,5 @@ window.PA = window.PA || {};
   }
 
   PA.views = PA.views || {};
-  PA.views.lesson = { render, openLessonEditor, openLessonRecorder, checkPendingRecording };
+  PA.views.lesson = { render, openLessonEditor, openLessonRecorder, openLessonImport, openLessonDetail, checkPendingRecording };
 })(window.PA);
