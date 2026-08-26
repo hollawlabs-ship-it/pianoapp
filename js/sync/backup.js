@@ -385,8 +385,84 @@ window.PA = window.PA || {};
     return `${U.fmtDate(U.dateKey(d))} 백업`;
   }
 
+  /* ---------- 폰에서 비우기 ----------
+     폰과 드라이브는 용량 사정이 다르다. 드롭박스는 유료면 넉넉하지만
+     iOS가 홈 화면 앱에 주는 공간은 1GB 안팎이라 몇 달이면 찬다.
+     그래서 '드라이브에 전부, 폰에는 최근 것만' 두는 구조가 필요하다.
+
+     비우기는 지우기와 다르다. 반드시 드라이브에 있는 것을 확인한 뒤에만
+     내리고, audioKey를 남겨 나중에 같은 자리로 되받는다. */
+
+  /** 매니페스트가 보증하는 원격 파일 목록. key → path. */
+  async function remoteAudioIndex() {
+    const m = await readManifest();
+    const out = new Map();
+    if (!m) return out;
+    (m.recordings || []).forEach((r) => { if (r.key && r.path) out.set(r.key, r.path); });
+    return out;
+  }
+
+  /**
+   * 백업이 확인된 레슨 원본을 폰에서 내린다.
+   * @param {object} [opts] { dryRun } — dryRun이면 지우지 않고 대상만 센다.
+   */
+  async function offloadBackedUpLessons(opts) {
+    opts = opts || {};
+    if (PA.store.isReadOnly()) throw new Error('보기 전용 기기에서는 바꿀 수 없습니다.');
+    const p = provider();
+    if (!p) throw new Error('저장 드라이브가 연결돼 있지 않습니다.');
+
+    const index = await remoteAudioIndex();
+    const local = new Set(await PA.store.listBlobKeys());
+    const targets = [];
+
+    for (const s of PA.store.songs()) {
+      for (const l of s.lessons || []) {
+        if (!l.audioKey || l.audioOffloaded) continue;
+        if (!local.has(l.audioKey)) continue;          // 이미 폰에 없다
+        const path = index.get(l.audioKey);
+        if (!path) continue;                            // 드라이브에 없으면 손대지 않는다
+        let size = 0;
+        try {
+          const b = await PA.store.getBlob(l.audioKey);
+          if (!b) continue;
+          size = b.size;
+        } catch (e) { continue; }
+        targets.push({ songId: s.id, lessonId: l.id, key: l.audioKey, path, size, date: l.date });
+      }
+    }
+
+    const bytes = targets.reduce((a, t) => a + t.size, 0);
+    if (opts.dryRun) return { count: targets.length, bytes, targets };
+
+    let freed = 0;
+    for (const t of targets) {
+      await PA.store.delBlob(t.key);
+      PA.store.offloadLessonAudio(t.songId, t.lessonId, t.path);
+      freed += t.size;
+    }
+    return { count: targets.length, bytes: freed, targets };
+  }
+
+  /** 내려놓은 원본을 드라이브에서 되받는다. */
+  async function rehydrateLessonAudio(song, lesson) {
+    const p = provider();
+    if (!p) throw new Error('저장 드라이브가 연결돼 있지 않습니다.');
+    let path = lesson.audioRemotePath;
+    if (!path) {
+      const index = await remoteAudioIndex();
+      path = index.get(lesson.audioKey);
+    }
+    if (!path) throw new Error('드라이브에서 이 원본을 찾지 못했습니다.');
+    const blob = await p.getFile(path);
+    if (!blob || !blob.size) throw new Error('드라이브에서 내려받지 못했습니다.');
+    await PA.store.rehydrateLessonAudio(song.id, lesson.id, blob);
+    return blob;
+  }
+
   PA.backup = {
     init, backup, restore, preview, checkConflict, readManifest,
+    remoteAudioIndex, offloadBackedUpLessons, rehydrateLessonAudio,
     provider, setProvider, currentId, isConnected, pullIfNewer,
     options, setOptions, subscribe, getStatus,
     deviceId, deviceName, setDeviceName, lastSync, lastSyncLabel,

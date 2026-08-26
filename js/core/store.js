@@ -372,6 +372,8 @@ window.PA = window.PA || {};
         analysis: null, analyzedAt: null, analyzedBy: null,
         /* 레슨 원본 오디오. 전사 전까지 보관하고, 분석은 전사 텍스트로 한다. */
         audioKey: null, audioMime: '', audioDuration: 0, audioAt: null, audioSource: null,
+        /* 폰에서만 내려놓은 상태. audioKey는 그대로라 드라이브에서 되받을 수 있다. */
+        audioOffloaded: false, audioRemotePath: null,
       },
       data || {}
     );
@@ -410,6 +412,35 @@ window.PA = window.PA || {};
     l.audioDuration = (meta && meta.duration) || 0;
     l.audioSource = (meta && meta.source) || 'mic';
     l.audioAt = Date.now();
+    emit('lesson');
+    return l;
+  }
+
+  /**
+   * 원본을 폰에서만 내린다. 드롭박스에 올라가 있는 것이 확인된 뒤에만 부를 것.
+   * 지우는 것과 다르다 — audioKey를 그대로 두어 나중에 같은 자리로 되받는다.
+   *
+   * 폰과 드라이브는 용량 사정이 다르다. 드롭박스는 유료면 넉넉하지만
+   * iOS가 홈 화면 앱에 주는 공간은 1GB 안팎이라 몇 달이면 찬다.
+   * 그래서 '전부 보관하되 폰에는 최근 것만' 두는 구조가 필요하다.
+   */
+  function offloadLessonAudio(songId, lessonId, remotePath) {
+    const s = songById(songId);
+    const l = s && s.lessons.find((x) => x.id === lessonId);
+    if (!l || !l.audioKey) return null;
+    l.audioOffloaded = true;
+    l.audioRemotePath = remotePath || l.audioRemotePath || null;
+    emit('lesson');
+    return l;
+  }
+
+  /** 드라이브에서 되받아 다시 폰에 둔다. */
+  async function rehydrateLessonAudio(songId, lessonId, blob) {
+    const s = songById(songId);
+    const l = s && s.lessons.find((x) => x.id === lessonId);
+    if (!l || !l.audioKey || !blob) return null;
+    await putBlob(l.audioKey, blob);
+    l.audioOffloaded = false;
     emit('lesson');
     return l;
   }
@@ -607,7 +638,7 @@ window.PA = window.PA || {};
     'setRating', 'setMemo',
     'addRecording', 'updateRecording', 'removeRecording',
     'addLesson', 'updateLesson', 'removeLesson',
-    'setLessonAudio', 'removeLessonAudio',
+    'setLessonAudio', 'removeLessonAudio', 'offloadLessonAudio', 'rehydrateLessonAudio',
     'toggleIssue', 'toggleTask', 'logPractice',
     'addRoleModel', 'updateRoleModel', 'setPrimaryRoleModel', 'removeRoleModel',
     'pushSnapshot',
@@ -638,7 +669,7 @@ window.PA = window.PA || {};
     rating, setRating, setMemo,
     addRecording, updateRecording, removeRecording, recordingsFor,
     addLesson, updateLesson, removeLesson, allIssues, toggleIssue, toggleTask,
-    setLessonAudio, removeLessonAudio,
+    setLessonAudio, removeLessonAudio, offloadLessonAudio, rehydrateLessonAudio,
     logPractice, practiceByDay, totalPractice,
     addRoleModel, updateRoleModel, setPrimaryRoleModel, removeRoleModel,
     setSettings, pushSnapshot, exportJSON, importJSON,

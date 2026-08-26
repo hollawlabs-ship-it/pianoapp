@@ -5,7 +5,7 @@ window.PA = window.PA || {};
   'use strict';
 
   /* 자산을 바꾸면 sw.js의 VERSION도 함께 올려야 캐시가 갱신된다. */
-  PA.VERSION = 'v6.12.0';
+  PA.VERSION = 'v6.13.0';
   PA.CHANNEL = 'beta';
 
   /* ---------- DOM ---------- */

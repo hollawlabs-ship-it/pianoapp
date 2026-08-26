@@ -530,6 +530,61 @@ window.PA = window.PA || {};
     return out;
   }
 
+  /* 백업이 확인된 원본을 폰에서만 내린다.
+     지우기와 다르다 — 드라이브에 있는 것만 골라 내리고, 들으려 하면
+     그 자리에서 다시 받는다. 드롭박스는 넉넉해도 폰은 그렇지 않다. */
+  function offloadRow() {
+    const host = el('div', { style: { marginTop: '10px' } });
+    if (PA.store.isReadOnly()) return host;
+
+    if (!PA.backup.isConnected()) {
+      host.appendChild(el('p', { class: 'tiny faint', style: { lineHeight: '1.6' },
+        text: '드라이브를 연결하면 백업된 원본을 폰에서 비워 공간을 되찾을 수 있습니다.' }));
+      return host;
+    }
+
+    const note = el('p', { class: 'tiny faint', style: { marginTop: '6px', lineHeight: '1.6' } });
+    const btn = el('button', {
+      class: 'btn sm block', html: icon('layers', 15) + '<span>백업된 원본 폰에서 비우기</span>',
+      onclick: async (e) => {
+        const b = e.currentTarget;
+        b.disabled = true;
+        try {
+          const plan = await PA.backup.offloadBackedUpLessons({ dryRun: true });
+          if (!plan.count) {
+            toast('드라이브에 올라간 원본이 아직 없습니다. 먼저 백업하세요.');
+            return;
+          }
+          const ok = await PA.sheets.confirm({
+            title: '폰에서 비우기',
+            message: `${plan.count}개 원본(${PA.storage.fmtBytes(plan.bytes)})을 폰에서 내립니다. `
+                   + '드라이브에 그대로 있고, 들으려 하면 그 자리에서 다시 받습니다.',
+            confirmLabel: '비우기', cancelLabel: '그대로 두기',
+          });
+          if (!ok) return;
+          const r = await PA.backup.offloadBackedUpLessons();
+          toast(`${r.count}개, ${PA.storage.fmtBytes(r.bytes)}를 비웠습니다.`);
+          render();
+        } catch (err) {
+          toast(err.message, 'warn');
+        } finally {
+          b.disabled = false;
+        }
+      },
+    });
+    host.appendChild(btn);
+    host.appendChild(note);
+
+    /* 얼마나 비울 수 있는지 미리 보여 준다. 눌러 봐야 아는 버튼은 안 누른다. */
+    PA.backup.offloadBackedUpLessons({ dryRun: true }).then((plan) => {
+      note.textContent = plan.count
+        ? `지금 비울 수 있는 원본 ${plan.count}개 · ${PA.storage.fmtBytes(plan.bytes)}`
+        : '드라이브에 올라간 원본이 아직 없습니다.';
+    }).catch(() => { note.textContent = ''; });
+
+    return host;
+  }
+
   function storageSection() {
     const host = el('div');
     host.appendChild(el('div', { class: 'section-title', style: { marginTop: 0 } }, [
@@ -593,6 +648,7 @@ window.PA = window.PA || {};
             text: `${usage.rawCount}개는 아직 전사 전입니다 — 지우면 되돌릴 수 없습니다.` }));
         }
         box.appendChild(line);
+        box.appendChild(offloadRow());
       }
 
       // iOS는 storage.persist()가 없어 홈 화면 추가가 유일한 방어책이다

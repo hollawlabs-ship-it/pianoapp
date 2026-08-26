@@ -364,7 +364,35 @@ window.PA = window.PA || {};
       el('span', { class: 'small', text: '레슨 원본' }),
       el('span', { class: 'spacer' }),
       el('span', { class: 'tiny faint', text: fmtDur(lesson.audioDuration) + (lesson.audioSource === 'file' ? ' · 첨부' : ' · 앱 녹음') }),
+      lesson.audioOffloaded ? el('span', { class: 'badge', text: '폰에서 비움' }) : null,
     ]));
+
+    /* 폰에서 내려놓은 상태라면 플레이어 대신 되받기를 보여 준다.
+       파일이 없는데 재생 막대만 놓여 있으면 고장으로 보인다. */
+    if (lesson.audioOffloaded) {
+      wrap.appendChild(el('p', { class: 'tiny faint', style: { marginTop: '8px', lineHeight: '1.6' },
+        text: '폰에서는 비웠고 드라이브에 보관 중입니다. 들으려면 다시 받으세요.' }));
+      const get = el('button', {
+        class: 'btn sm block', html: icon('download', 15) + '<span>드라이브에서 다시 받기</span>',
+        onclick: async (e) => {
+          const b = e.currentTarget;
+          b.disabled = true;
+          b.innerHTML = '<span class="thinking"><i></i><i></i><i></i></span><span>받는 중</span>';
+          try {
+            await PA.backup.rehydrateLessonAudio(song, lesson);
+            toast('다시 받았습니다.');
+            refresh();
+          } catch (err) {
+            toast(err.message, 'warn');
+            b.disabled = false;
+            b.innerHTML = icon('download', 15) + '<span>드라이브에서 다시 받기</span>';
+          }
+        },
+      });
+      wrap.appendChild(el('div', { style: { marginTop: '8px' } }, [get]));
+      if (!ro && !lesson.transcript) wrap.appendChild(pasteRow(song, lesson, refresh));
+      return wrap;
+    }
 
     const audio = el('audio', { controls: true, style: { width: '100%', marginTop: '8px' } });
     PA.store.getBlob(lesson.audioKey).then((b) => {
