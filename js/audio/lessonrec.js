@@ -35,18 +35,29 @@ window.PA = window.PA || {};
       noiseSuppression: true,
       autoGainControl: true,
       channelCount: 1,
+      /* Whisper가 16kHz로 낮추어 처리하므로 처음부터 그 값으로 받는다.
+         낮은 비트레이트에서 인코더가 훨씬 유리해진다. 거절되어도 무해하다. */
+      sampleRate: 16000,
     },
   };
 
-  /* 말소리 기준 32kbps. 한 시간에 약 14MB.
-     64kbps에서 내렸다. 이유가 둘이다.
-       1) 자동 전사(Groq)의 무료 업로드 한도가 25MB다. 64kbps로 한 시간을
-          담으면 29MB라 그 자리에서 막힌다.
-       2) Whisper는 어차피 16kHz 모노로 낮춰 처리한다. 더 준다고 더 잘
-          알아듣지 않는다.
-     사람이 듣기에도 말소리는 이 정도면 충분하고, 저장 공간과 백업 용량이
-     절반으로 줄어든다. */
-  const BITRATE = 32000;
+  /* 24kbps. 기준은 '가장 긴 레슨'이다.
+     레슨은 주 4회이고 그중 둘이 두 시간짜리다. 두 시간이 들어가야 한다.
+
+       16kbps → 2시간 13.7MB   (여유는 크지만 음질을 더 버린다)
+       24kbps → 2시간 20.6MB   ← 한도 25MB 안에 21% 여유
+       32kbps → 2시간 27.5MB   초과. 절반의 레슨이 전사되지 않는다.
+
+     한 시간짜리 기준으로 맞추면 두 시간짜리에서 조용히 실패한다.
+     자동 전사(Groq)의 무료 업로드 한도가 파일당 25MB이기 때문이다.
+
+     음질 손해는 크지 않다. Whisper는 어차피 16kHz 모노로 낮춰 처리하므로
+     더 준다고 더 잘 알아듣지 않고, 사람이 말소리를 알아듣기에도 충분하다. */
+  const BITRATE = 24000;
+
+  /* 전사 한도에 견줘 위험한지 판단할 기준. stt와 같은 값을 봐야 하므로
+     여기서 정하지 않고 물어본다. 아직 안 실렸으면 25MB로 본다. */
+  const sttLimit = () => (PA.stt && PA.stt.MAX_BYTES) || 25 * 1024 * 1024;
 
   function pickMime() {
     /* iOS Safari는 audio/mp4만 낸다. 안드로이드 크롬은 webm/opus를 낸다.
@@ -154,7 +165,7 @@ window.PA = window.PA || {};
       session = {
         id: 'ls' + Date.now().toString(36),
         songId, lessonId: lessonId || null,
-        startedAt: Date.now(), chunks: 0, mime, done: false,
+        startedAt: Date.now(), chunks: 0, bytes: 0, mime, done: false,
       };
       writeSession(session);
 
@@ -167,6 +178,7 @@ window.PA = window.PA || {};
         try {
           await PA.store.putBlob(chunkKey(session.id, i), e.data);
           session.chunks = i + 1;
+          session.bytes = (session.bytes || 0) + e.data.size;
           writeSession(session);
         } catch (err) {
           /* 저장에 실패하면 그 조각은 잃지만 녹음은 계속한다.
@@ -201,7 +213,10 @@ window.PA = window.PA || {};
       } catch (e) { /* 레벨 표시는 없어도 그만 */ }
 
       tickId = setInterval(() => {
-        if (handlers.tick) handlers.tick((Date.now() - startAt) / 1000, interrupted);
+        if (handlers.tick) {
+          const bytes = (session && session.bytes) || 0;
+          handlers.tick((Date.now() - startAt) / 1000, interrupted, bytes, bytes > sttLimit());
+        }
       }, 500);
 
       if (PA.storage && PA.storage.keepAwake) { try { await PA.storage.keepAwake(); } catch (e) {} }

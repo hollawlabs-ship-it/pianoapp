@@ -730,6 +730,7 @@ window.PA = window.PA || {};
 
     const file = el('input', { class: 'input', type: 'file', accept: 'audio/*,video/*', style: { padding: '10px' } });
     const summary = el('div', { class: 'tiny faint', text: '아이폰의 음성 메모, 클로바노트에서 내려받은 파일, 녹음기 앱 파일 모두 됩니다.' });
+    const sizeNote = el('div', { class: 'tiny faint' });
     const date = el('input', { class: 'input', type: 'date', value: U.todayKey() });
     const teacher = el('input', { class: 'input', placeholder: '선생님 (선택)' });
 
@@ -752,6 +753,14 @@ window.PA = window.PA || {};
         summary.textContent = `${picked.name} · ${PA.storage.fmtBytes(picked.size)}`;
         URL.revokeObjectURL(url);
       });
+
+      /* 밖에서 찍은 파일은 비트레이트를 알 수 없다. 두 시간짜리가 한도를
+         넘는 일이 흔하므로 가져오기 전에 알려 준다 — 가져온 뒤 전사 단계에서
+         막히면 어디가 문제인지 찾기 어렵다. */
+      sizeNote.textContent = picked.size > PA.stt.MAX_BYTES
+        ? `${PA.storage.fmtBytes(PA.stt.MAX_BYTES)}를 넘어 자동 전사는 쓸 수 없습니다. 클로바노트로 전사하세요.`
+        : '';
+      sizeNote.className = picked.size > PA.stt.MAX_BYTES ? 'tiny warn' : 'tiny faint';
       probe.src = url;
 
       /* 파일명에 날짜가 들어 있으면 (20260822 / 2026-08-22 / 2026_08_22)
@@ -764,7 +773,7 @@ window.PA = window.PA || {};
     });
 
     const body = el('div', { class: 'stack', style: { gap: '12px' } }, [
-      el('div', { class: 'field' }, [el('label', { text: '녹음 파일' }), file, summary]),
+      el('div', { class: 'field' }, [el('label', { text: '녹음 파일' }), file, summary, sizeNote]),
       el('div', { class: 'grid-2' }, [
         el('div', { class: 'field' }, [el('label', { text: '레슨 날짜' }), date]),
         el('div', { class: 'field' }, [el('label', { text: '선생님' }), teacher]),
@@ -813,9 +822,30 @@ window.PA = window.PA || {};
     const note = el('p', { class: 'tiny faint', style: { lineHeight: '1.6' },
       text: '화면을 끄거나 다른 앱으로 넘어가면 iOS가 녹음을 멈춥니다. 그때까지 녹음된 부분은 5초 단위로 저장돼 남습니다.' });
 
-    rec.onTick((sec) => {
+    /* 크기를 실시간으로 보여 준다. iOS가 비트레이트 요청을 무시하는 일이
+       있어서, 두 시간을 다 찍고 나서야 전사 한도를 넘은 걸 아는 상황을
+       막으려는 것이다. 그때는 이미 다시 찍을 수 없다. */
+    const size = el('div', { class: 'tiny faint', style: { fontVariantNumeric: 'tabular-nums' } });
+    let warned = false;
+    rec.onTick((sec, interrupted, bytes, overLimit) => {
       const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
-      time.textContent = `${m}:${String(s).padStart(2, '0')}`;
+      const h = Math.floor(m / 60);
+      time.textContent = h > 0
+        ? `${h}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+        : `${m}:${String(s).padStart(2, '0')}`;
+
+      if (!bytes) return;
+      const cap = PA.stt.MAX_BYTES;
+      size.textContent = `${PA.storage.fmtBytes(bytes)} / 자동 전사 한도 ${PA.storage.fmtBytes(cap)}`;
+      if (overLimit) {
+        size.className = 'tiny warn';
+        if (!warned) {
+          warned = true;
+          toast('자동 전사 한도를 넘었습니다. 이 녹음은 클로바노트로 전사해야 합니다.', 'warn');
+        }
+      } else if (bytes > cap * 0.8) {
+        size.className = 'tiny';
+      }
     });
     rec.onLevel((rms) => { meterFill.style.width = Math.min(100, rms * 320) + '%'; });
     rec.onInterrupt(() => {
@@ -827,7 +857,7 @@ window.PA = window.PA || {};
        actions로 만든 버튼은 라벨을 바꿀 수 없어 한 버튼으로 토글할 수 없다. */
     const mainBtn = el('button', { class: 'btn accent block', html: icon('mic', 17) + '<span>녹음 시작</span>' });
     const body = el('div', { class: 'stack', style: { gap: '14px', alignItems: 'center', textAlign: 'center' } },
-      [time, meter, note, mainBtn]);
+      [time, size, meter, note, mainBtn]);
 
     const sheet = PA.sheets.open({
       title: '레슨 녹음',
