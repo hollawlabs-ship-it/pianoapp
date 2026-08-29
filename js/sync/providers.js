@@ -38,7 +38,7 @@ window.PA = window.PA || {};
   /* 여기에 드롭박스 앱 키를 넣어 두면 기기마다 붙여넣지 않아도 된다.
      앱 키는 비밀이 아니라 공개 식별자다(client_id). PKCE라서 앱 시크릿은 쓰지 않으며,
      시크릿은 절대 여기에 넣으면 안 된다. */
-  const DEFAULT_APP_KEY = '';
+  const DEFAULT_APP_KEY = '2on0d1etm6dpx76';
 
   /* 이 앱이 실제로 호출하는 엔드포인트에 필요한 권한만 요청한다.
      콘솔의 Permissions 탭에서도 같은 항목이 켜져 있어야 한다. */
