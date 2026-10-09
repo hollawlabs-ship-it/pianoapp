@@ -427,8 +427,36 @@ window.PA = window.PA || {};
       if (st.recordingId === rec.id) PA.charts.drawEnvelope(canvas, { primary: rec.envelope, playhead: st.progress });
     });
 
+    /* 연주 녹음은 Sonic Visualiser로 가져가 명연주와 겹쳐 보는 일이 많다.
+       그 도구들이 m4a를 잘 못 읽으므로 WAV로 바꿔 내보낸다.
+       레슨과 달리 여기서는 원본 품질을 지킨다 — 음색까지 분석 대상이다. */
+    const wavBtn = el('button', {
+      class: 'btn sm ghost', html: icon('download', 15) + '<span>WAV</span>',
+      onclick: async (e) => {
+        const b = e.currentTarget;
+        const html = b.innerHTML;
+        b.disabled = true;
+        b.innerHTML = '<span class="thinking"><i></i><i></i><i></i></span><span>변환 중</span>';
+        try {
+          const label = (rec.label || '녹음').replace(/[\\/:*?"<>|]/g, '');
+          const r = await PA.wav.exportFrom(rec.blobKey, {
+            name: `${song.title} ${label} ${rec.createdAt}`,
+          });
+          const khz = Math.round(r.rate / 100) / 10;
+          toast(`WAV ${r.how === 'downloaded' ? '내려받았습니다' : '보냈습니다'} (${khz}kHz ${r.channels === 1 ? '모노' : '스테레오'}).`);
+        } catch (err) {
+          toast(err.message, 'warn');
+        } finally {
+          b.disabled = false;
+          b.innerHTML = html;
+        }
+      },
+    });
+    wavBtn.setAttribute('aria-label', 'WAV로 내보내기');
+
     body.appendChild(el('div', { class: 'row' }, [
       el('button', { class: 'btn primary', html: icon('play', 17) + '<span>재생</span>', onclick: () => PA.player.play(rec, song) }),
+      rec.blobKey ? wavBtn : null,
       el('span', { class: 'spacer' }),
       el('span', { class: 'tiny muted', text: `${U.fmtDate(rec.createdAt)} · ${fmtDur(rec.duration)}` }),
     ]));

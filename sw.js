@@ -8,7 +8,7 @@
 
    ⚠️ 자산을 바꾸면 아래 VERSION을 반드시 올릴 것. 안 올리면 옛 캐시가 남는다. */
 
-const VERSION = 'v6.14.0';
+const VERSION = 'v6.15.0';
 const CACHE = `pianoapp-${VERSION}`;
 
 const SHELL = [
@@ -23,6 +23,7 @@ const SHELL = [
   './js/core/storage.js',
   './js/core/intake.js',
   './js/audio/envelope.js',
+  './js/audio/wav.js',
   './js/audio/recorder.js',
   './js/audio/lessonrec.js',
   './js/audio/metronome.js',

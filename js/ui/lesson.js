@@ -441,12 +441,47 @@ window.PA = window.PA || {};
         },
       });
       del.setAttribute('aria-label', '원본 오디오 삭제');
-      wrap.appendChild(el('div', { class: 'row', style: { gap: '8px', marginTop: '10px' } }, [toClova, el('span', { class: 'spacer' }), del]));
+
+      /* 분석 프로그램(Audacity · Sonic Visualiser)은 m4a를 잘 못 읽는다.
+         Audacity는 FFmpeg를 따로 깔아야 열린다. 그래서 WAV로 바꿔 내보낸다.
+         레슨은 말소리라 16kHz 모노로 충분하고, 그래야 두 시간짜리도
+         폰에서 펼칠 수 있다. */
+      const toWav = el('button', {
+        class: 'btn sm ghost', html: icon('download', 15) + '<span>WAV</span>',
+        onclick: (e) => exportWav(e.currentTarget, lesson.audioKey, {
+          speech: true,
+          name: `레슨 ${lesson.date}${lesson.teacher ? ' ' + lesson.teacher : ''}`,
+        }),
+      });
+      toWav.setAttribute('aria-label', 'WAV로 내보내기');
+
+      wrap.appendChild(el('div', { class: 'row', style: { gap: '8px', marginTop: '10px' } },
+        [toClova, toWav, el('span', { class: 'spacer' }), del]));
       if (!lesson.transcript) {
         wrap.appendChild(pasteRow(song, lesson, refresh));
       }
     }
     return wrap;
+  }
+
+  /* WAV 변환은 파일을 통째로 펼치는 일이라 몇 초 걸린다.
+     버튼이 아무 반응 없이 멈춘 것처럼 보이면 또 누르게 되므로 상태를 보여 준다. */
+  async function exportWav(btn, blobKey, opts) {
+    const html = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="thinking"><i></i><i></i><i></i></span><span>변환 중</span>';
+    try {
+      const r = await PA.wav.exportFrom(blobKey, opts);
+      const khz = Math.round(r.rate / 100) / 10;
+      toast(r.how === 'downloaded'
+        ? `WAV로 내려받았습니다 (${khz}kHz ${r.channels === 1 ? '모노' : '스테레오'}).`
+        : `WAV를 보냈습니다 (${khz}kHz ${r.channels === 1 ? '모노' : '스테레오'}).`);
+    } catch (e) {
+      toast(e.message, 'warn');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = html;
+    }
   }
 
   function audioAddRow(song, lesson, refresh) {
